@@ -4,12 +4,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-java@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-      - name: Build APK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Create project structure
         run: |
           mkdir -p app/src/main/java/com/battlezone/game
           mkdir -p app/src/main/assets
@@ -24,75 +26,23 @@ jobs:
           cp MainActivity.java app/src/main/java/com/battlezone/game/
           cp styles.xml app/src/main/res/values/
           cp strings.xml app/src/main/res/values/
+          cp build.gradle app/build.gradle
           python3 -c "
-          import struct,zlib
-          def png(s):
-            rows=b''.join(b'\x00'+bytes([34,197,94]*s) for _ in range(s))
-            def c(t,d):
-              r=struct.pack('>I',len(d))+t+d
-              return r+struct.pack('>I',zlib.crc32(r[4:])&0xffffffff)
-            return b'\x89PNG\r\n\x1a\n'+c(b'IHDR',struct.pack('>IIBBBBB',s,s,8,2,0,0,0))+c(b'IDAT',zlib.compress(rows))+c(b'IEND',b'')
-          for s,n in [(48,'mdpi'),(72,'hdpi'),(96,'xhdpi'),(144,'xxhdpi'),(192,'xxxhdpi')]:
-            open(f'app/src/main/res/mipmap-{n}/ic_launcher.png','wb').write(png(s))
-          "
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O sdk.zip
-          mkdir -p $HOME/sdk/cmdline-tools
-          unzip -q sdk.zip -d $HOME/sdk/cmdline-tools
-          mv $HOME/sdk/cmdline-tools/cmdline-tools $HOME/sdk/cmdline-tools/latest
-          export ANDROID_HOME=$HOME/sdk
-          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
-          yes | sdkmanager --licenses > /dev/null
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
-          cat > settings.gradle << 'EOF'
-          rootProject.name = "battlezone"
-          include ':app'
-          EOF
-          cat > build.gradle << 'EOF'
-          buildscript {
-            repositories { google(); mavenCentral() }
-            dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }
-          }
-          allprojects { repositories { google(); mavenCentral() } }
-          EOF
-          cat > gradle.properties << 'EOF'
-          org.gradle.jvmargs=-Xmx2048m
-          android.useAndroidX=true
-          android.enableJetifier=true
-          EOF
-          cat > app/build.gradle << 'EOF'
-          plugins { id 'com.android.application' }
-          android {
-            compileSdk 34
-            namespace 'com.battlezone.game'
-            defaultConfig {
-              applicationId "com.battlezone.game"
-              minSdk 21; targetSdk 34
-              versionCode 1; versionName "1.0"
-            }
-            buildTypes { debug { debuggable true } }
-            compileOptions {
-              sourceCompatibility JavaVersion.VERSION_1_8
-              targetCompatibility JavaVersion.VERSION_1_8
-            }
-          }
-          EOF
-          mkdir -p gradle/wrapper
-          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.1-bin.zip
-          EOF
-          wget -q https://services.gradle.org/distributions/gradle-8.1-bin.zip -O gw.zip
-          unzip -q gw.zip
-          ./gradle-8.1/bin/gradle wrapper --gradle-version=8.1 --quiet
+import struct,zlib
+def png(s):
+  r=b''.join(b'\x00'+bytes([34,197,94]*s) for _ in range(s))
+  def c(t,d):
+    x=struct.pack('>I',len(d))+t+d
+    return x+struct.pack('>I',zlib.crc32(x[4:])&0xffffffff)
+  return b'\x89PNG\r\n\x1a\n'+c(b'IHDR',struct.pack('>IIBBBBB',s,s,8,2,0,0,0))+c(b'IDAT',zlib.compress(r))+c(b'IEND',b'')
+for s,n in [(48,'mdpi'),(72,'hdpi'),(96,'xhdpi'),(144,'xxhdpi'),(192,'xxxhdpi')]:
+  open(f'app/src/main/res/mipmap-{n}/ic_launcher.png','wb').write(png(s))
+"
+      - name: Build Debug APK
+        run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-      - uses: actions/upload-artifact@v3
+          ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
         with:
           name: DOT-WAR-BATTLEZONE-APK
           path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
