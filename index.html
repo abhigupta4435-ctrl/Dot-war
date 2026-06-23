@@ -1,0 +1,1861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no,maximum-scale=1.0">
+  <title>DOT WAR BATTLEZONE</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body,#root{width:100%;height:100%;background:#0a0f1e;overflow:hidden}
+    body{touch-action:none;user-select:none;-webkit-user-select:none}
+    #loader{
+      position:fixed;inset:0;background:#0a0f1e;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      z-index:9999;font-family:system-ui,sans-serif;
+    }
+    #loader h1{color:#4ade80;font-size:28px;font-weight:900;letter-spacing:3px;margin-bottom:6px}
+    #loader h2{color:#ef4444;font-size:18px;font-weight:900;letter-spacing:5px;margin-bottom:30px}
+    .bar-wrap{width:220px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-bottom:14px}
+    .bar{height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#4ade80);border-radius:4px;transition:width 0.3s}
+    #loader p{color:#475569;font-size:13px}
+    #root{display:none}
+  </style>
+</head>
+<body>
+  <div id="loader">
+    <h1>DOT WAR</h1>
+    <h2>BATTLEZONE</h2>
+    <div class="bar-wrap"><div class="bar" id="bar"></div></div>
+    <p id="msg">Loading game...</p>
+  </div>
+  <div id="root"></div>
+
+  <script>
+    var bar=document.getElementById('bar');
+    var msg=document.getElementById('msg');
+    var pct=0;
+    var iv=setInterval(function(){
+      pct+=2;if(pct>90)pct=90;
+      bar.style.width=pct+'%';
+    },200);
+
+    window.storage={
+      _load:function(){try{return JSON.parse(localStorage.getItem('bz_storage')||'{}')}catch(e){return{}}},
+      _save:function(d){try{localStorage.setItem('bz_storage',JSON.stringify(d))}catch(e){}},
+      get:function(key,shared){var d=this._load(),k=(shared?'s:':'p:')+key;if(!(k in d))throw new Error('Key not found: '+key);return{key:key,value:d[k],shared:!!shared}},
+      set:function(key,value,shared){var d=this._load();d[(shared?'s:':'p:')+key]=value;this._save(d);return{key:key,value:value,shared:!!shared}},
+      delete:function(key,shared){var d=this._load();delete d[(shared?'s:':'p:')+key];this._save(d);return{key:key,deleted:true,shared:!!shared}},
+      list:function(prefix,shared){var d=this._load(),pfx=(shared?'s:':'p:')+(prefix||'');return{keys:Object.keys(d).filter(function(k){return k.startsWith(pfx)}).map(function(k){return k.replace(/^[ps]:/,'')}),prefix:prefix,shared:!!shared}}
+    };
+  </script>
+
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.2/babel.min.js"></script>
+
+  <script>
+    msg.textContent='Almost ready...';
+    bar.style.width='95%';
+  </script>
+
+  <script type="text/babel" data-presets="react">
+import { useState, useEffect, useRef, useCallback } from "react";
+
+// ─── constants ─────────────────────────────────────────────────────────────
+const MAP_W = 2000, MAP_H = 2000;
+const PLAYER_R = 14, ENEMY_R = 14, BULLET_R = 4, LOOT_R = 10;
+const TOTAL_LEVELS = 200;
+const THUMBNAIL = "data:image/jpeg;base64,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iigAooooGOFFAooGFFFFAHLv1NNpz9TTa3RQUUUUwCiiigAooooAKKKKAClFJSigCdelFC9KKgAooooAKKKKACiiigAooooAKKKKAIpPvGmU+T7xplUgCiiimAUUUUAFWtM/4+h9Kq1a0z/j6H0pS2EzeX7oooX7oorAgKUUlKKBi0UUUDCiiigAooooAKKKKACiiigAooooAQ0lKaSgTCiiigQUUUUAFFFFABRRRQAUUUUDHCiiigYUUUUAcu/U02nP1NNrdFBRRRTAKKKKACiiigAooooAKUUlKKAJ16UUL0oqACiiigAooooAKKKKACiiigAooooAik+8aZT5PvGmVSAKKKKYBRRRQAVa0z/j6H0qrVrTP+PofSlLYTN5fuiihfuiisCApRSUooGLRRRQMKKKCcUAFFNLgU0yqKLhYkoqIzr2NNMw7GlcdmT0VWMj+tIGlPei47FncKQuo71X/e0eXIetK4WJzInrTfNT1qJoWPUUgt+ORTuxWRL5yetNadQeooEC46UogTuKNQ0Gm444pPPb2qTyI/Sl8pPSjULoi89qQzSdhU3lJ6UojQdBRZhdEHnS+lHnS+lWNi+lGxfSizC6K/nS+lHnS+lWNi+lGxfSizC6IBLKe1L5snpU+xfSjYtFmO6IPNk9KXzX71NsWkMantSswujmn6mm05+pptdKAKKKKYBRRRQAUUUUAFFFFABSikpRQBOvSihelFQAUUUUAFFFFABRRRQAUUEgDmgc9KACiiigCKT7xplPk6mmVSAKKKKYBRRkUZFFwsFWtM/4+h9KplqnsJCLgYFTJqw+VnRL0pc1UEzFR8po+c+tYXJ5S0WA70xplBxUQic87jSi3OclqLsLIf8AaF9KQzZHANOWHHU08RilqPQgDse5oxI3erO1fSjA9KLCuVxG5707yW71PiinYLkQiHpSiJe4qSiiwXG7F9KUKB2paKdhXEwKWiigBDSUppKBMKKKKBBRRRQAUUUUAFFFFABRRRQMcKKBRQMKKKKAOXfqabTnOeabW6KCiiimAUUUtACUUuKSgAooooAKWkpRQBOvSimBwKXePWpsA6im+YKTzF9aQD6KZ5q0nmrQFmSUVH5q+tZ+tatDYWru77WAyKcIubshSfKrsi8T6vFptk7bwJB2qj4a8TRX7COR1XjrXmfijXLjV71hu3RN3zVXTp5L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";
+const LOOT_COLORS = { ammo:"#f59e0b", health:"#10b981", armor:"#60a5fa", gun:"#a78bfa" };
+const LOOT_LABELS = { ammo:"A", health:"+", armor:"◆", gun:"G" };
+
+// ─── GUNS ──────────────────────────────────────────────────────────────────
+const GUNS = [
+  {
+    id:"pistol",   name:"Pistol",           icon:"🔫", rarity:"common",    price:0,
+    damage:25,  firerate:12, magazine:12,  range:90,  reload:85,  spread:0.05, bulletSpeed:13, bulletCount:1, type:"bullet",
+    bulletColor:"#fef08a", desc:"Reliable sidearm. Free to all.", barrelLen:16,
+  },
+  {
+    id:"ar",       name:"Assault Rifle",    icon:"⚔️",  rarity:"common",    price:120,
+    damage:32,  firerate:8,  magazine:30,  range:115, reload:100, spread:0.06, bulletSpeed:14, bulletCount:1, type:"bullet",
+    bulletColor:"#fef08a", desc:"Balanced. The soldier's backbone.", barrelLen:22,
+  },
+  {
+    id:"smg",      name:"SMG",              icon:"💨",  rarity:"common",    price:180,
+    damage:16,  firerate:3,  magazine:45,  range:75,  reload:75,  spread:0.11, bulletSpeed:12, bulletCount:1, type:"bullet",
+    bulletColor:"#93c5fd", desc:"Blazing fire rate. Shreds enemies up close.", barrelLen:14,
+  },
+  {
+    id:"shotgun",  name:"Shotgun",          icon:"💥",  rarity:"rare",      price:280,
+    damage:22,  firerate:28, magazine:8,   range:52,  reload:120, spread:0.32, bulletSpeed:11, bulletCount:6, type:"shotgun",
+    bulletColor:"#fb923c", desc:"6 pellets per blast. Devastating short range.", barrelLen:18,
+  },
+  {
+    id:"sniper",   name:"Sniper Rifle",     icon:"🎯",  rarity:"rare",      price:350,
+    damage:130, firerate:45, magazine:5,   range:270, reload:140, spread:0.004,bulletSpeed:20, bulletCount:1, type:"bullet",
+    bulletColor:"#c4b5fd", desc:"One shot. One kill. Extreme precision.", barrelLen:30,
+  },
+  {
+    id:"lmg",      name:"LMG",              icon:"🔩",  rarity:"rare",      price:400,
+    damage:27,  firerate:6,  magazine:80,  range:100, reload:200, spread:0.09, bulletSpeed:13, bulletCount:1, type:"bullet",
+    bulletColor:"#fde68a", desc:"80-round drum. Endless suppression fire.", barrelLen:24,
+  },
+  {
+    id:"minigun",  name:"Minigun",          icon:"⚙️",  rarity:"epic",      price:650,
+    damage:14,  firerate:2,  magazine:200, range:90,  reload:280, spread:0.13, bulletSpeed:14, bulletCount:1, type:"bullet",
+    bulletColor:"#fbbf24", desc:"200 rounds of pure destruction.", barrelLen:26,
+  },
+  {
+    id:"grenade",  name:"Grenade Launcher", icon:"💣",  rarity:"epic",      price:750,
+    damage:85,  firerate:50, magazine:6,   range:140, reload:160, spread:0.04, bulletSpeed:7,  bulletCount:1, type:"explosive",
+    bulletColor:"#f87171", explosionRadius:75, desc:"Explosive rounds. Area damage on impact.", barrelLen:20,
+  },
+  {
+    id:"flame",    name:"Flamethrower",     icon:"🔥",  rarity:"legendary", price:950,
+    damage:5,   firerate:1,  magazine:250, range:50,  reload:180, spread:0.38, bulletSpeed:6,  bulletCount:4, type:"flame",
+    bulletColor:"#f97316", desc:"Continuous fire stream. Burns everything.", barrelLen:20,
+  },
+  {
+    id:"missile",  name:"Missile Launcher", icon:"🚀",  rarity:"legendary", price:1100,
+    damage:180, firerate:70, magazine:3,   range:210, reload:220, spread:0.02, bulletSpeed:9,  bulletCount:1, type:"missile",
+    bulletColor:"#ef4444", explosionRadius:110, desc:"Massive explosion. Obliterates entire squads.", barrelLen:24,
+  },
+  // ── EXTRA HANDGUNS ────────────────────────────────────────────────────────
+  {
+    id:"deagle",   name:"Desert Eagle",     icon:"🔫",  rarity:"rare",      price:320,
+    damage:68,  firerate:22, magazine:7,   range:120, reload:110, spread:0.02, bulletSpeed:16, bulletCount:1, type:"bullet",
+    bulletColor:"#fde68a", desc:"Iconic heavy semi-auto. Hits like a truck.", barrelLen:24,
+  },
+  {
+    id:"revolver", name:"Revolver",         icon:"🌀",  rarity:"rare",      price:380,
+    damage:95,  firerate:30, magazine:6,   range:130, reload:130, spread:0.01, bulletSpeed:17, bulletCount:1, type:"bullet",
+    bulletColor:"#fbbf24", desc:"6 deadly shots. Slow but bone-crushing.", barrelLen:20,
+  },
+  {
+    id:"dual",     name:"Dual Pistols",     icon:"⚡",  rarity:"epic",      price:550,
+    damage:22,  firerate:5,  magazine:24,  range:85,  reload:90,  spread:0.09, bulletSpeed:13, bulletCount:2, type:"shotgun",
+    bulletColor:"#93c5fd", desc:"Two pistols at once. Rapid twin-fire.", barrelLen:16,
+  },
+  {
+    id:"magnum",   name:"Magnum .44",       icon:"💥",  rarity:"epic",      price:680,
+    damage:130, firerate:38, magazine:5,   range:145, reload:145, spread:0.008,bulletSpeed:18, bulletCount:1, type:"bullet",
+    bulletColor:"#f97316", desc:"One round, devastating power. No mercy.", barrelLen:26,
+  },
+  {
+    id:"machine",  name:"Machine Pistol",   icon:"💨",  rarity:"legendary", price:900,
+    damage:20,  firerate:2,  magazine:36,  range:80,  reload:85,  spread:0.14, bulletSpeed:13, bulletCount:1, type:"bullet",
+    bulletColor:"#a3e635", desc:"Compact full-auto. Spray and slay.", barrelLen:14,
+  },
+  // ── MELEE WEAPONS ─────────────────────────────────────────────────────
+  {
+    id:"knife",  name:"Combat Knife", icon:"🔪", rarity:"common",    price:60,
+    damage:45,  firerate:10, magazine:999, range:0, reload:5,  spread:0, bulletSpeed:0, bulletCount:1, type:"melee", meleeRange:38, swingArc:0.9,
+    bulletColor:"#94a3b8", desc:"Fast knife strikes. Must be close.", barrelLen:0,
+  },
+  {
+    id:"sword",  name:"Sword",        icon:"⚔️",  rarity:"rare",      price:260,
+    damage:90,  firerate:22, magazine:999, range:0, reload:5,  spread:0, bulletSpeed:0, bulletCount:1, type:"melee", meleeRange:50, swingArc:1.1,
+    bulletColor:"#60a5fa", desc:"Deadly sword slash in close range.", barrelLen:0,
+  },
+  {
+    id:"axe",    name:"Battle Axe",   icon:"🪓",  rarity:"epic",      price:480,
+    damage:140, firerate:36, magazine:999, range:0, reload:5,  spread:0, bulletSpeed:0, bulletCount:1, type:"melee", meleeRange:55, swingArc:1.4,
+    bulletColor:"#f59e0b", desc:"Devastating axe smash. Massive damage.", barrelLen:0,
+  },
+  {
+    id:"hammer", name:"War Hammer",   icon:"🔨",  rarity:"legendary", price:850,
+    damage:200, firerate:55, magazine:999, range:0, reload:5,  spread:0, bulletSpeed:0, bulletCount:1, type:"melee", meleeRange:58, swingArc:1.0,
+    bulletColor:"#ef4444", desc:"Obliterating hammer. One hit = one kill.", barrelLen:0,
+  },
+  // ── PREMIUM WEAPONS (Shop only – real money) ──────────────────────────
+  {
+    id:"laser",   name:"Laser Gun",         icon:"⚡",  rarity:"premium", price:0, realPrice:"$6.99",
+    damage:75,  firerate:6,  magazine:25,  range:280, reload:70,  spread:0.001,bulletSpeed:30, bulletCount:1, type:"laser",
+    bulletColor:"#00ffff", desc:"Hitscan laser beam. Instant & deadly.", barrelLen:28,
+  },
+  {
+    id:"plasma",  name:"Plasma Rifle",      icon:"🌀",  rarity:"premium", price:0, realPrice:"$8.99",
+    damage:58,  firerate:13, magazine:20,  range:160, reload:90,  spread:0.02, bulletSpeed:11, bulletCount:1, type:"plasma",
+    bulletColor:"#a855f7", desc:"Plasma balls bounce off walls.", barrelLen:22,
+  },
+  {
+    id:"railgun", name:"Rail Gun",          icon:"🔆",  rarity:"premium", price:0, realPrice:"$10.99",
+    damage:240, firerate:55, magazine:5,   range:300, reload:150, spread:0.001,bulletSpeed:28, bulletCount:1, type:"rail",
+    bulletColor:"#fbbf24", desc:"Penetrates ALL enemies in a line.", barrelLen:34,
+  },
+  {
+    id:"quantum", name:"Quantum Blaster",   icon:"✨",  rarity:"premium", price:0, realPrice:"$12.99",
+    damage:55,  firerate:18, magazine:24,  range:120, reload:95,  spread:0.08, bulletSpeed:13, bulletCount:3, type:"quantum",
+    bulletColor:"#34d399", desc:"Fires 3 quantum shots simultaneously.", barrelLen:20,
+  },
+  {
+    id:"nuclear", name:"Nuclear Launcher",  icon:"☢️",  rarity:"premium", price:0, realPrice:"$14.99",
+    damage:380, firerate:100,magazine:2,   range:230, reload:260, spread:0.01, bulletSpeed:7,  bulletCount:1, type:"missile",
+    bulletColor:"#22c55e", explosionRadius:180, desc:"Apocalyptic blast. Levels the entire zone.", barrelLen:26,
+  },
+];
+
+const RARITY_ORDER = ["common","rare","epic","legendary","premium"];
+const RARITY_COLOR = { common:"#94a3b8", rare:"#60a5fa", epic:"#a78bfa", legendary:"#fbbf24", premium:"#f0abfc" };
+
+// ─── 26 SKINS ──────────────────────────────────────────────────────────────
+const SKINS = [
+  {id:"default",  name:"Recruit",      price:0,    body:"#16a34a", helmet:"#15803d", gun:"#1a1a1a", border:"#4ade80",  rarity:"common"},
+  {id:"desert",   name:"Desert Fox",   price:80,   body:"#b45309", helmet:"#92400e", gun:"#422006", border:"#fbbf24",  rarity:"common"},
+  {id:"arctic",   name:"Arctic Wolf",  price:120,  body:"#cbd5e1", helmet:"#94a3b8", gun:"#334155", border:"#e2e8f0",  rarity:"common"},
+  {id:"ocean",    name:"Ocean",        price:150,  body:"#0369a1", helmet:"#075985", gun:"#082f49", border:"#38bdf8",  rarity:"common"},
+  {id:"jungle",   name:"Jungle Ops",   price:160,  body:"#365314", helmet:"#1a2e05", gun:"#14532d", border:"#86efac",  rarity:"common"},
+  {id:"shadow",   name:"Shadow",       price:200,  body:"#1e1b4b", helmet:"#312e81", gun:"#0f0f0f", border:"#818cf8",  rarity:"rare"},
+  {id:"stealth",  name:"Stealth",      price:220,  body:"#171717", helmet:"#0a0a0a", gun:"#1c1c1c", border:"#525252",  rarity:"rare"},
+  {id:"toxic",    name:"Toxic",        price:250,  body:"#4d7c0f", helmet:"#3f6212", gun:"#1a2e05", border:"#bef264",  rarity:"rare"},
+  {id:"inferno",  name:"Inferno",      price:300,  body:"#dc2626", helmet:"#991b1b", gun:"#450a0a", border:"#f87171",  rarity:"rare"},
+  {id:"magma",    name:"Magma",        price:280,  body:"#c2410c", helmet:"#9a3412", gun:"#431407", border:"#fb923c",  rarity:"rare"},
+  {id:"ice",      name:"Ice Queen",    price:320,  body:"#bae6fd", helmet:"#7dd3fc", gun:"#0c4a6e", border:"#e0f2fe",  rarity:"rare"},
+  {id:"carbon",   name:"Carbon",       price:350,  body:"#1c1917", helmet:"#292524", gun:"#0c0a09", border:"#78716c",  rarity:"rare"},
+  {id:"crimson",  name:"Crimson",      price:380,  body:"#9f1239", helmet:"#881337", gun:"#4c0519", border:"#fda4af",  rarity:"epic"},
+  {id:"neon",     name:"Neon",         price:380,  body:"#134e4a", helmet:"#0f766e", gun:"#022c22", border:"#2dd4bf",  rarity:"epic"},
+  {id:"galaxy",   name:"Galaxy",       price:500,  body:"#7c3aed", helmet:"#5b21b6", gun:"#2e1065", border:"#c4b5fd",  rarity:"epic"},
+  {id:"gold",     name:"Gold Elite",   price:480,  body:"#92400e", helmet:"#78350f", gun:"#451a03", border:"#fde68a",  rarity:"epic"},
+  {id:"phantom",  name:"Phantom",      price:420,  body:"#3b0764", helmet:"#4a044e", gun:"#1a0024", border:"#e879f9",  rarity:"epic"},
+  {id:"sakura",   name:"Sakura",       price:430,  body:"#fce7f3", helmet:"#fbcfe8", gun:"#831843", border:"#f9a8d4",  rarity:"epic"},
+  {id:"cyber",    name:"Cyber",        price:550,  body:"#0f172a", helmet:"#1e293b", gun:"#020617", border:"#22d3ee",  rarity:"legendary"},
+  {id:"phoenix",  name:"Phoenix",      price:600,  body:"#c2410c", helmet:"#ea580c", gun:"#431407", border:"#fbbf24",  rarity:"legendary"},
+  {id:"void",     name:"Void",         price:650,  body:"#020617", helmet:"#0a0f1e", gun:"#000000", border:"#6366f1",  rarity:"legendary"},
+  {id:"storm",    name:"Storm",        price:700,  body:"#1e3a5f", helmet:"#1e40af", gun:"#1e3a5f", border:"#93c5fd",  rarity:"legendary"},
+  {id:"angel",    name:"Angel",        price:750,  body:"#fef9c3", helmet:"#fef08a", gun:"#78716c", border:"#fbbf24",  rarity:"legendary"},
+  {id:"demon",    name:"Demon King",   price:800,  body:"#450a0a", helmet:"#7f1d1d", gun:"#1c0606", border:"#dc2626",  rarity:"legendary"},
+  {id:"rainbow",  name:"Rainbow",      price:900,  body:"#7c3aed", helmet:"#db2777", gun:"#0369a1", border:"#f472b6",  rarity:"legendary"},
+  {id:"titan",    name:"Titan",        price:1000, body:"#292524", helmet:"#44403c", gun:"#1c1917", border:"#fbbf24",  rarity:"legendary"},
+  // ── PREMIUM skins (real money) — inspired by medallion artwork ──
+  {id:"infernaldemon", name:"Infernal Demon",  price:0, realPrice:"$5.99",  body:"#1a0000", helmet:"#3b0000", gun:"#2d0000", border:"#b45309", glow:"#f97316", special:"horns",  rarity:"premium", desc:"Bronze demon lord.", img:"data:image/jpeg;base64,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"},
+  {id:"skullcorsair",  name:"Skull Corsair",   price:0, realPrice:"$7.99",  body:"#0a0a0a", helmet:"#1a1a00", gun:"#050505", border:"#fbbf24", glow:"#fde68a", special:"skull",  rarity:"premium", desc:"Golden pirate skull.", img:"data:image/jpeg;base64,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"},
+  {id:"ancientdragon", name:"Ancient Dragon",  price:0, realPrice:"$9.99",  body:"#1c1008", helmet:"#2d1a0a", gun:"#120a00", border:"#92400e", glow:"#d97706", special:"dragon", rarity:"premium", desc:"Bronze dragon spirit.", img:"data:image/jpeg;base64,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"},
+  {id:"ironeagle", name:"Iron Eagle", price:0, realPrice:"$8.99", body:"#1a2035", helmet:"#2d3a55", gun:"#0a1020", border:"#d97706", glow:"#fbbf24", special:"eagle", rarity:"premium", desc:"Fierce eagle warrior. Eyes of a predator.", img:"data:image/jpeg;base64,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"},
+  {id:"divineempress", name:"Divine Empress",  price:0, realPrice:"$11.99", body:"#fef3c7", helmet:"#fde68a", gun:"#78716c", border:"#f59e0b", glow:"#fef08a", special:"crown",  rarity:"premium", desc:"Golden goddess.", img:"data:image/jpeg;base64,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"},
+];
+
+
+// ─── MAPS ──────────────────────────────────────────────────────────────────
+const MAPS = [
+  {id:"grasslands",name:"Grasslands",    icon:"🌿",color:"#22c55e",unlockAt:0,
+   ground:"#2d5a1e",ground2:"#1e4010",
+   zoneDmgMult:1.0,desc:"Open green fields. Perfect for beginners."},
+  {id:"desert",    name:"Desert Sands",  icon:"🏜️",color:"#f59e0b",unlockAt:0,
+   ground:"#c8963a",ground2:"#b07828",
+   zoneDmgMult:1.2,desc:"Scorching sands. Sparse cover. Dangerous zone."},
+  {id:"urban",     name:"Urban Warfare", icon:"🏙️",color:"#60a5fa",unlockAt:0,
+   ground:"#374151",ground2:"#1f2937",
+   zoneDmgMult:1.4,desc:"Dense city blocks. Maximum cover. Deadly ambushes."},
+  {id:"forest",    name:"Dark Forest",   icon:"🌲",color:"#4ade80",unlockAt:0,
+   ground:"#0f1f08",ground2:"#0a1505",
+   zoneDmgMult:1.6,desc:"Massive ancient trees. Hard to navigate. Very deadly zone."},
+  {id:"arctic",    name:"Arctic Storm",  icon:"❄️",color:"#bae6fd",unlockAt:0,
+   ground:"#d4e8f0",ground2:"#b8d4e0",
+   zoneDmgMult:2.0,desc:"Frozen tundra. Zone damage doubled. Survive if you can."},
+  {id:"volcanic",  name:"Volcanic Zone", icon:"🌋",color:"#ef4444",unlockAt:0,
+   ground:"#1a0400",ground2:"#2d0800",
+   zoneDmgMult:2.5,desc:"Scorching lava fields. Zone damage x2.5. Ultimate challenge."},
+];
+
+// ─── level config ──────────────────────────────────────────────────────────
+function getLevelConfig(lvl){
+  const t=(lvl-1)/(TOTAL_LEVELS-1);
+  return {
+    enemyCount:  Math.floor(5+t*45),
+    enemyHp:     Math.floor(60+t*440),
+    enemyDamage: Math.round((8+t*42)*10)/10,
+    enemySpeed:  Math.round((1.1+t*1.9)*10)/10,
+    enemyShootCd:Math.floor(90-t*55),
+    lootCount:   Math.floor(20+t*20),
+    baseZoneDmg: Math.round((0.06+t*0.14)*100)/100,
+    coinReward:  Math.floor(10+lvl*3),
+  };
+}
+function diffLabel(lvl){
+  if(lvl<=20) return{label:"EASY",     color:"#22c55e"};
+  if(lvl<=50) return{label:"MEDIUM",   color:"#84cc16"};
+  if(lvl<=80) return{label:"HARD",     color:"#f59e0b"};
+  if(lvl<=110)return{label:"VETERAN",  color:"#f97316"};
+  if(lvl<=140)return{label:"ELITE",    color:"#ef4444"};
+  if(lvl<=170)return{label:"LEGEND",   color:"#a855f7"};
+  return            {label:"NIGHTMARE",color:"#dc2626"};
+}
+
+// ─── helpers ───────────────────────────────────────────────────────────────
+const rand  = (a,b)=>Math.random()*(b-a)+a;
+const clamp = (v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+
+// ── Map-specific obstacle generation ─────────────────────────────────────
+function genObstacles(mc){
+  const id = mc ? mc.id : "grasslands";
+  const obstacles = [];
+
+  if(id === "grasslands"){
+    // Round trees
+    for(let i=0;i<55;i++) obstacles.push({type:"tree",x:rand(60,MAP_W-60),y:rand(60,MAP_H-60),r:rand(18,30)});
+    // Wooden huts
+    for(let i=0;i<14;i++) obstacles.push({type:"building",x:rand(100,MAP_W-200),y:rand(100,MAP_H-200),w:rand(80,160),h:rand(80,140),clr:`hsl(${rand(20,40)},${rand(40,55)}%,${rand(25,35)}%)`});
+  }
+  else if(id === "desert"){
+    // Cacti — tall + cross-arm shape
+    for(let i=0;i<35;i++) obstacles.push({type:"cactus",x:rand(80,MAP_W-80),y:rand(80,MAP_H-80),h:rand(28,50),r:rand(9,14)});
+    // Sand ruins / rubble blocks
+    for(let i=0;i<22;i++) obstacles.push({type:"ruin",x:rand(100,MAP_W-200),y:rand(100,MAP_H-200),w:rand(60,130),h:rand(50,110),clr:`hsl(${rand(32,42)},${rand(55,70)}%,${rand(28,38)}%)`});
+    // Sand dunes (oval bumps, no collision — decorative only)
+    for(let i=0;i<20;i++) obstacles.push({type:"dune",x:rand(60,MAP_W-60),y:rand(60,MAP_H-60),rx:rand(30,55),ry:rand(12,22)});
+  }
+  else if(id === "urban"){
+    // City buildings with roads
+    for(let i=0;i<32;i++) obstacles.push({type:"cityblock",x:rand(60,MAP_W-180),y:rand(60,MAP_H-180),w:rand(90,200),h:rand(90,180),clr:`hsl(${rand(200,230)},${rand(12,22)}%,${rand(20,30)}%)`,roofClr:`hsl(${rand(200,230)},${rand(15,28)}%,${rand(30,42)}%)`});
+    // Street lights (small circles, decorative)
+    for(let i=0;i<18;i++) obstacles.push({type:"streetlight",x:rand(50,MAP_W-50),y:rand(50,MAP_H-50)});
+  }
+  else if(id === "forest"){
+    // Huge dark trees — very dense
+    for(let i=0;i<95;i++) obstacles.push({type:"bigtree",x:rand(50,MAP_W-50),y:rand(50,MAP_H-50),r:rand(22,42),tier:Math.floor(rand(1,4))});
+    // Mossy boulders
+    for(let i=0;i<10;i++) obstacles.push({type:"boulder",x:rand(100,MAP_W-100),y:rand(100,MAP_H-100),r:rand(20,35)});
+    // Mushrooms (decorative)
+    for(let i=0;i<20;i++) obstacles.push({type:"mushroom",x:rand(60,MAP_W-60),y:rand(60,MAP_H-60),r:rand(10,18)});
+  }
+  else if(id === "arctic"){
+    // Snow-covered pine trees (tall spike shape)
+    for(let i=0;i<40;i++) obstacles.push({type:"pinetree",x:rand(60,MAP_W-60),y:rand(60,MAP_H-60),r:rand(16,28)});
+    // Ice boulders / glacier chunks
+    for(let i=0;i<25;i++) obstacles.push({type:"iceberg",x:rand(80,MAP_W-80),y:rand(80,MAP_H-80),r:rand(22,40)});
+    // Frozen bunkers
+    for(let i=0;i<12;i++) obstacles.push({type:"building",x:rand(100,MAP_W-200),y:rand(100,MAP_H-200),w:rand(80,150),h:rand(70,130),clr:`hsl(${rand(190,215)},${rand(30,50)}%,${rand(35,50)}%)`});
+  }
+  else if(id === "volcanic"){
+    // Lava rocks (jagged hexagons)
+    for(let i=0;i<45;i++) obstacles.push({type:"lavarock",x:rand(60,MAP_W-60),y:rand(60,MAP_H-60),r:rand(18,38),sides:Math.floor(rand(5,8))});
+    // Ash ruins
+    for(let i=0;i<16;i++) obstacles.push({type:"building",x:rand(100,MAP_W-200),y:rand(100,MAP_H-200),w:rand(70,150),h:rand(60,130),clr:`hsl(${rand(0,15)},${rand(55,75)}%,${rand(18,28)}%)`});
+    // Lava pools (oval, decorative)
+    for(let i=0;i<12;i++) obstacles.push({type:"lavapool",x:rand(80,MAP_W-80),y:rand(80,MAP_H-80),rx:rand(22,45),ry:rand(14,28)});
+  }
+
+  return obstacles;
+}
+
+// Collision check against new obstacle types (only solid ones)
+function isSolid(obs){
+  return !["dune","streetlight","mushroom","lavapool"].includes(obs.type);
+}
+
+function blkObs(x,y,r,obstacles){
+  for(const o of obstacles){
+    if(!isSolid(o)) continue;
+    if(o.type==="tree"||o.type==="cactus"||o.type==="bigtree"||o.type==="pinetree"||o.type==="iceberg"||o.type==="lavarock"||o.type==="boulder"){
+      if(Math.hypot(x-o.x,y-o.y)<r+o.r) return true;
+    } else if(o.type==="building"||o.type==="ruin"||o.type==="cityblock"){
+      if(Math.hypot(Math.max(o.x,Math.min(x,o.x+o.w))-x,Math.max(o.y,Math.min(y,o.y+o.h))-y)<r) return true;
+    }
+  }
+  return false;
+}
+
+function genEnemies(cfg, lvl){
+  // Decide which skin/weapon pools to draw from based on level
+  const useSkin  = lvl>=21;
+  const useWeapon= lvl>=36;
+
+  const skinPool = lvl>=81 ? SKINS.filter(s=>["legendary","premium"].includes(s.rarity))
+                 : lvl>=61 ? SKINS.filter(s=>["epic","legendary"].includes(s.rarity))
+                 : lvl>=41 ? SKINS.filter(s=>s.rarity==="rare")
+                 : SKINS.filter(s=>s.rarity==="common");
+
+  // Filter out premium guns for enemies (they use coin-bought guns only)
+  const allGuns = GUNS.filter(g=>g.rarity!=="premium");
+  const gunPool = lvl>=81 ? allGuns.filter(g=>["legendary","epic"].includes(g.rarity))
+                : lvl>=61 ? allGuns.filter(g=>["epic","rare"].includes(g.rarity))
+                : lvl>=41 ? allGuns.filter(g=>["rare","common"].includes(g.rarity))
+                : allGuns.filter(g=>g.rarity==="common");
+
+  const pickRand = arr=>arr[Math.floor(Math.random()*arr.length)];
+
+  return Array.from({length:cfg.enemyCount},(_,i)=>{
+    const eSkin   = useSkin&&skinPool.length  ? pickRand(skinPool) : null;
+    const eWeapon = useWeapon&&gunPool.length  ? pickRand(gunPool)  : null;
+    return {
+      id:i, x:rand(100,MAP_W-100), y:rand(100,MAP_H-100),
+      hp:cfg.enemyHp, maxHp:cfg.enemyHp, angle:0, alive:true,
+      shootTimer:rand(cfg.enemyShootCd,cfg.enemyShootCd*2),
+      state:"patrol", alertTimer:0,
+      targetX:rand(100,MAP_W-100), targetY:rand(100,MAP_H-100),
+      skinData:eSkin, weaponData:eWeapon,
+    };
+  });
+}
+
+const genLoots = n=>{const t=["ammo","health","armor","gun"];return Array.from({length:n},(_,i)=>({id:i,x:rand(80,MAP_W-80),y:rand(80,MAP_H-80),type:t[Math.floor(rand(0,t.length))],picked:false}));};
+
+// ═══════════════════════════════════════════════════════════════════════════
+export default function BattleZone(){
+  const [coins,        setCoins]        = useState(200);
+  const [maxUnlocked,  setMaxUnlocked]  = useState(1);
+  const [ownedSkins,   setOwnedSkins]   = useState(["default"]);
+  const [equippedSkin, setEquippedSkin] = useState("default");
+  const [ownedGuns,    setOwnedGuns]    = useState(["pistol"]);
+  const [equippedGun,  setEquippedGun]  = useState("pistol");
+  const [settings,     setSettings]     = useState({sensitivity:5,vibration:true,musicVol:7});
+  const [phase,        setPhase]        = useState("menu");
+  const [currentLvl,   setCurrentLvl]   = useState(1);
+  const [notification, setNotification] = useState("");
+  const [quitConfirm,  setQuitConfirm]  = useState(false);
+  const [hud,          setHud]          = useState({hp:100,armor:0,ammo:12,maxAmmo:12,kills:0,alive:1,reloading:false,zoneClose:false,zoneDmg:0,gunName:"Pistol",gunIcon:"🔫"});
+  const [gunFilter,    setGunFilter]    = useState("all");
+  const [currentMap,   setCurrentMap]   = useState("grasslands");
+  const [mapProgress,  setMapProgress]  = useState({grasslands:1,desert:0,urban:0,forest:0,arctic:0,volcanic:0});
+  const [paused,       setPaused]       = useState(false);
+  const [storageReady, setStorageReady] = useState(false);
+  const [isPortrait,   setIsPortrait]   = useState(window.innerHeight > window.innerWidth);
+  const [shopTab,      setShopTab]      = useState("guns");
+  const [purchaseItem, setPurchaseItem] = useState(null); // {type,item} for confirm modal
+
+  const canvasRef    = useRef(null);
+  const gsRef        = useRef(null);
+  const animRef      = useRef(null);
+  const joyRef       = useRef({active:false,startX:0,startY:0,dx:0,dy:0,id:null});
+  const aimRef       = useRef({active:false,worldX:0,worldY:0,shooting:false,id:null});
+  const isPausedRef  = useRef(false);
+  const skinImgRef   = useRef({});
+  const fireAimRef   = useRef({active:false,startX:0,startY:0,currX:0,currY:0,id:null});
+  const CW           = useRef(window.innerWidth);
+  const CH           = useRef(window.innerHeight);
+
+  // Preload all premium skin images once on mount
+  useEffect(()=>{
+    SKINS.forEach(sk=>{
+      if(sk.img&&!skinImgRef.current[sk.id]){
+        const im=new Image(); im.src=sk.img; skinImgRef.current[sk.id]=im;
+      }
+    });
+  },[]);
+
+  const showNotif = msg=>{setNotification(msg);setTimeout(()=>setNotification(""),2400);};
+  const getSkin   = id=>SKINS.find(s=>s.id===id)||SKINS[0];
+  const getGun    = id=>GUNS.find(g=>g.id===id)||GUNS[0];
+  const activeSkin= getSkin(equippedSkin);
+  const activeGun = getGun(equippedGun);
+
+  // ── ORIENTATION: try to lock landscape, detect portrait ──────────────────
+  useEffect(()=>{
+    try{ screen.orientation.lock("landscape").catch(()=>{}); }catch(e){}
+    const check=()=>setIsPortrait(window.innerHeight>window.innerWidth);
+    window.addEventListener("resize",check);
+    window.addEventListener("orientationchange",check);
+    return()=>{ window.removeEventListener("resize",check); window.removeEventListener("orientationchange",check); };
+  },[]);
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const result = await window.storage.get("dwb_progress");
+        if(result && result.value){
+          const saved = JSON.parse(result.value);
+          if(saved.coins       !== undefined) setCoins(saved.coins);
+          if(saved.maxUnlocked !== undefined) setMaxUnlocked(saved.maxUnlocked);
+          if(saved.ownedSkins  !== undefined) setOwnedSkins(saved.ownedSkins);
+          if(saved.equippedSkin!== undefined) setEquippedSkin(saved.equippedSkin);
+          if(saved.ownedGuns   !== undefined) setOwnedGuns(saved.ownedGuns);
+          if(saved.equippedGun !== undefined) setEquippedGun(saved.equippedGun);
+          if(saved.settings    !== undefined) setSettings(saved.settings);
+          if(saved.mapProgress !== undefined) setMapProgress(saved.mapProgress);
+        }
+      }catch(e){}
+      setStorageReady(true);
+    })();
+  },[]);
+
+  // ── SAVE progress whenever key state changes ───────────────────────────
+  useEffect(()=>{
+    if(!storageReady) return;
+    (async()=>{
+      try{
+        await window.storage.set("dwb_progress", JSON.stringify({
+          coins, maxUnlocked, ownedSkins, equippedSkin, ownedGuns, equippedGun, settings, mapProgress
+        }));
+      }catch(e){}
+    })();
+  },[coins, maxUnlocked, ownedSkins, equippedSkin, ownedGuns, equippedGun, settings, mapProgress, storageReady]);
+
+  // ── start level ────────────────────────────────────────────────────────
+  const currentMapRef = useRef("grasslands");
+
+  const startLevel = useCallback((lvl, mapOverride)=>{
+    CW.current=window.innerWidth; CH.current=window.innerHeight;
+    joyRef.current={active:false,startX:0,startY:0,dx:0,dy:0,id:null};
+    aimRef.current={active:false,worldX:0,worldY:0,shooting:false,id:null};
+    const cfg=getLevelConfig(lvl);
+    const gun=getGun(equippedGun);
+    const mapId = mapOverride || currentMapRef.current || "grasslands";
+    const activeMC=MAPS.find(m=>m.id===mapId)||MAPS[0];
+    // Pre-generate ground decoration positions so they don't flicker
+    const groundDeco=[];
+    if(activeMC.id==="arctic") for(let i=0;i<300;i++) groundDeco.push({x:Math.random()*MAP_W,y:Math.random()*MAP_H});
+    if(activeMC.id==="forest") for(let i=0;i<70;i++) groundDeco.push({x:Math.random()*MAP_W,y:Math.random()*MAP_H,rx:15+Math.random()*30,ry:8+Math.random()*18,a:Math.random()*Math.PI});
+    if(activeMC.id==="volcanic") for(let i=0;i<35;i++) groundDeco.push({x:Math.random()*MAP_W,y:Math.random()*MAP_H,dx:(Math.random()-0.5)*160,dy:(Math.random()-0.5)*160});
+    gsRef.current={
+      player:{x:MAP_W/2,y:MAP_H/2,hp:100,maxHp:100,armor:0,ammo:gun.magazine,angle:Math.PI/2,alive:true,kills:0,reloadTimer:0,shootTimer:0},
+      bullets:[],enemyBullets:[],
+      enemies:genEnemies(cfg,lvl),loots:genLoots(cfg.lootCount),
+      obstacles:genObstacles(activeMC),mapCfg:activeMC,groundDeco,
+      zone:{cx:MAP_W/2,cy:MAP_H/2,r:MAP_W*0.7,nextR:MAP_W*0.45,shrinkTimer:900,phase:1,maxR:MAP_W*0.7},
+      particles:[],explosions:[],swingEffects:[],bulletId:0,tick:0,
+      cfg,skin:getSkin(equippedSkin),gun,
+    };
+    setCurrentLvl(lvl);
+    isPausedRef.current=false;
+    setPaused(false);
+    setPhase("playing");
+  },[equippedGun,equippedSkin]);
+
+  // ── touch ───────────────────────────────────────────────────────────────
+  useEffect(()=>{
+    if(phase!=="playing")return;
+    const canvas=canvasRef.current;if(!canvas)return;
+    const hw=()=>CW.current/2;
+    const onTS=e=>{e.preventDefault();for(const t of e.changedTouches){if(t.clientX<hw()){if(!joyRef.current.active)joyRef.current={active:true,startX:t.clientX,startY:t.clientY,dx:0,dy:0,id:t.identifier};}else{if(!aimRef.current.active){const gs=gsRef.current;if(!gs)continue;const p=gs.player;const cx=clamp(p.x-CW.current/2,0,MAP_W-CW.current),cy=clamp(p.y-CH.current/2,0,MAP_H-CH.current);aimRef.current={active:true,worldX:t.clientX+cx,worldY:t.clientY+cy,id:t.identifier};}}}};
+    const onTM=e=>{e.preventDefault();for(const t of e.changedTouches){if(t.identifier===joyRef.current.id){const jr=joyRef.current;let dx=t.clientX-jr.startX,dy=t.clientY-jr.startY;const len=Math.hypot(dx,dy),mx=55;if(len>mx){dx=dx/len*mx;dy=dy/len*mx;}jr.dx=dx/mx;jr.dy=dy/mx;}if(t.identifier===aimRef.current.id){const gs=gsRef.current;if(!gs)continue;const p=gs.player;const cx=clamp(p.x-CW.current/2,0,MAP_W-CW.current),cy=clamp(p.y-CH.current/2,0,MAP_H-CH.current);aimRef.current.worldX=t.clientX+cx;aimRef.current.worldY=t.clientY+cy;}}};
+    const onTE=e=>{e.preventDefault();for(const t of e.changedTouches){if(t.identifier===joyRef.current.id)joyRef.current={active:false,startX:0,startY:0,dx:0,dy:0,id:null};if(t.identifier===aimRef.current.id)aimRef.current={active:false,worldX:0,worldY:0,id:null};}};
+    canvas.addEventListener("touchstart",onTS,{passive:false});
+    canvas.addEventListener("touchmove",onTM,{passive:false});
+    canvas.addEventListener("touchend",onTE,{passive:false});
+    canvas.addEventListener("touchcancel",onTE,{passive:false});
+    return()=>{canvas.removeEventListener("touchstart",onTS);canvas.removeEventListener("touchmove",onTM);canvas.removeEventListener("touchend",onTE);canvas.removeEventListener("touchcancel",onTE);};
+  },[phase]);
+
+  // ── game loop ───────────────────────────────────────────────────────────
+  useEffect(()=>{
+    if(phase!=="playing")return;
+    const canvas=canvasRef.current;const ctx=canvas.getContext("2d");let ended=false;
+
+    const co=(ax,ay,ar,bx,by,br)=>Math.hypot(ax-bx,ay-by)<ar+br;
+    const rc=(rx,ry,rw,rh,cx,cy,cr)=>Math.hypot(clamp(cx,rx,rx+rw)-cx,clamp(cy,ry,ry+rh)-cy)<cr;
+    const blk=(x,y,r,gs)=>blkObs(x,y,r,gs.obstacles||[]);
+
+    // Push entity out of a wall it's already overlapping
+    const pushOut=(entity,r,gs)=>{
+      if(!blk(entity.x,entity.y,r,gs))return;
+      for(let d=2;d<=r*8;d+=2){
+        for(let a=0;a<Math.PI*2;a+=Math.PI/8){
+          const tx=clamp(entity.x+Math.cos(a)*d,r,MAP_W-r);
+          const ty=clamp(entity.y+Math.sin(a)*d,r,MAP_H-r);
+          if(!blk(tx,ty,r,gs)){entity.x=tx;entity.y=ty;return;}
+        }
+      }
+    };
+
+    // Move with wall sliding: tries full move, then X-only, then Y-only
+    const slide=(entity,dx,dy,r,gs)=>{
+      const nx=clamp(entity.x+dx,r,MAP_W-r);
+      const ny=clamp(entity.y+dy,r,MAP_H-r);
+      if(!blk(nx,ny,r,gs)){entity.x=nx;entity.y=ny;return true;}
+      if(Math.abs(dx)>0.05&&!blk(nx,entity.y,r,gs)){entity.x=nx;return true;}
+      if(Math.abs(dy)>0.05&&!blk(entity.x,ny,r,gs)){entity.y=ny;return true;}
+      return false;
+    };
+    const spark=(gs,x,y,color,n=6,speed=4)=>{for(let i=0;i<n;i++){const a=rand(0,Math.PI*2),s=rand(1,speed);gs.particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rand(18,36),color});}};
+
+    // Explosion: damages all enemies in radius
+    const explode=(gs,x,y,radius,dmg)=>{
+      spark(gs,x,y,"#fef08a",12,7);spark(gs,x,y,"#f97316",10,5);spark(gs,x,y,"#ef4444",8,4);
+      gs.explosions.push({x,y,r:0,maxR:radius,life:20});
+      for(const e of gs.enemies){
+        if(!e.alive)continue;
+        if(Math.hypot(e.x-x,e.y-y)<radius){e.hp-=dmg;e.state="chase";e.alertTimer=200;spark(gs,e.x,e.y,"#ef4444",4);if(e.hp<=0){e.alive=false;gs.player.kills++;spark(gs,e.x,e.y,"#f97316",10);}}
+      }
+      // Splash damage to player if too close
+      if(Math.hypot(gs.player.x-x,gs.player.y-y)<radius*0.55){gs.player.hp-=dmg*0.25;}
+    };
+
+    // Fire weapon
+    const fireWeapon=(p,gs,gun)=>{
+      if(gun.type==="melee"){
+        p.shootTimer=gun.firerate;
+        for(const e of gs.enemies){
+          if(!e.alive)continue;
+          if(Math.hypot(e.x-p.x,e.y-p.y)<gun.meleeRange){
+            e.hp-=gun.damage;e.state="chase";e.alertTimer=200;
+            spark(gs,e.x,e.y,"#fbbf24",8);
+            if(e.hp<=0){e.alive=false;p.kills++;spark(gs,e.x,e.y,"#f97316",14);}
+          }
+        }
+        gs.swingEffects.push({x:p.x,y:p.y,angle:p.angle,arc:gun.swingArc||1.1,life:14,maxLife:14,range:gun.meleeRange});
+        return;
+      }
+      p.shootTimer=gun.firerate;
+      p.ammo--;
+      if(gun.type==="flame"){
+        for(let i=0;i<gun.bulletCount;i++){const sp=(Math.random()-0.5)*gun.spread,bA=p.angle+sp;gs.bullets.push({id:gs.bulletId++,x:p.x+Math.cos(bA)*18,y:p.y+Math.sin(bA)*18,vx:Math.cos(bA)*gun.bulletSpeed,vy:Math.sin(bA)*gun.bulletSpeed,life:gun.range,type:"flame",dmg:gun.damage,color:i%2===0?"#f97316":"#fbbf24"});}
+      }else if(gun.type==="shotgun"){
+        for(let i=0;i<gun.bulletCount;i++){const sp=(Math.random()-0.5)*gun.spread,bA=p.angle+sp;gs.bullets.push({id:gs.bulletId++,x:p.x+Math.cos(bA)*18,y:p.y+Math.sin(bA)*18,vx:Math.cos(bA)*gun.bulletSpeed,vy:Math.sin(bA)*gun.bulletSpeed,life:gun.range,type:"bullet",dmg:gun.damage,color:gun.bulletColor});}
+      }else{
+        const sp=(Math.random()-0.5)*gun.spread,bA=p.angle+sp;
+        gs.bullets.push({id:gs.bulletId++,x:p.x+Math.cos(bA)*20,y:p.y+Math.sin(bA)*20,vx:Math.cos(bA)*gun.bulletSpeed,vy:Math.sin(bA)*gun.bulletSpeed,life:gun.range,type:gun.type,dmg:gun.damage,color:gun.bulletColor,explosionRadius:gun.explosionRadius});
+      }
+      if(p.ammo<=0)p.reloadTimer=gun.reload;
+    };
+
+    function loop(){
+      if(ended)return;
+      if(isPausedRef.current){animRef.current=requestAnimationFrame(loop);return;}
+      const gs=gsRef.current;if(!gs)return;
+      const p=gs.player;const cfg=gs.cfg;const sk=gs.skin;const gun=gs.gun;
+      const W=CW.current,H=CH.current;
+      gs.tick++;
+
+      const camX=clamp(p.x-W/2,0,MAP_W-W);
+      const camY=clamp(p.y-H/2,0,MAP_H-H);
+
+      // move player
+      const jr=joyRef.current;
+      pushOut(p,PLAYER_R,gs);
+      if(jr.active&&(jr.dx||jr.dy)){
+        const spd=3.0;
+        slide(p,jr.dx*spd,jr.dy*spd,PLAYER_R,gs);
+      }
+
+      // aim
+      const ar=aimRef.current;
+      if(ar.active)p.angle=Math.atan2(ar.worldY-p.y,ar.worldX-p.x);
+
+      // Fire aim joystick: drag the FIRE button to aim + fire simultaneously
+      if(p.shootTimer>0)p.shootTimer--;
+      if(p.reloadTimer>0){p.reloadTimer--;if(p.reloadTimer===0)p.ammo=gun.magazine;}
+      if(fireAimRef.current.active){
+        const fa=fireAimRef.current;
+        const dx=fa.currX-fa.startX, dy=fa.currY-fa.startY;
+        if(Math.hypot(dx,dy)>8) p.angle=Math.atan2(dy,dx); // aim on drag
+        if(p.shootTimer<=0&&p.ammo>0&&p.reloadTimer===0) fireWeapon(p,gs,gun);
+      }
+
+      // player bullets
+      gs.bullets=gs.bullets.filter(b=>{
+        b.x+=b.vx;b.y+=b.vy;b.life--;
+        if(b.life<=0||b.x<0||b.x>MAP_W||b.y<0||b.y>MAP_H){
+          if((b.type==="explosive"||b.type==="missile")&&b.life<=0)explode(gs,b.x,b.y,b.explosionRadius,b.dmg);
+          return false;
+        }
+        // Plasma bounces off walls
+        if(b.type==="plasma"&&blk(b.x,b.y,BULLET_R,gs)){
+          const hitX=blk(b.x+b.vx,b.y,BULLET_R,gs); const hitY=blk(b.x,b.y+b.vy,BULLET_R,gs);
+          if(hitX)b.vx=-b.vx; if(hitY)b.vy=-b.vy;
+          if(!hitX&&!hitY){b.vx=-b.vx;b.vy=-b.vy;}
+          b.bounces=(b.bounces||0)+1; if(b.bounces>4)return false;
+          return true;
+        }
+        if(b.type!=="flame"&&b.type!=="rail"&&b.type!=="laser"&&blk(b.x,b.y,BULLET_R,gs)){
+          if(b.type==="explosive"||b.type==="missile")explode(gs,b.x,b.y,b.explosionRadius,b.dmg);
+          else spark(gs,b.x,b.y,"#aaa",3);
+          return false;
+        }
+        for(const e of gs.enemies){
+          if(!e.alive)continue;
+          const hitR=b.type==="flame"?ENEMY_R+3:ENEMY_R+BULLET_R;
+          if(Math.hypot(b.x-e.x,b.y-e.y)<hitR){
+            if(b.type==="explosive"||b.type==="missile"){explode(gs,b.x,b.y,b.explosionRadius,b.dmg);return false;}
+            e.hp-=b.dmg;e.state="chase";e.alertTimer=200;
+            spark(gs,b.x,b.y,b.type==="flame"?"#f97316":b.type==="laser"?"#00ffff":b.type==="plasma"?"#a855f7":"#ef4444",4);
+            if(e.hp<=0){e.alive=false;p.kills++;spark(gs,e.x,e.y,"#f97316",10);}
+            if(b.type==="flame"||b.type==="rail")return true; // flame+rail pass through
+            // Quantum splits into 2 extra bullets on hit
+            if(b.type==="quantum"&&!b.split){
+              const perp=Math.atan2(b.vy,b.vx)+Math.PI/2;
+              const spd=Math.hypot(b.vx,b.vy);
+              gs.bullets.push({id:gs.bulletId++,x:b.x,y:b.y,vx:Math.cos(perp)*spd,vy:Math.sin(perp)*spd,life:40,type:"quantum",dmg:b.dmg*0.6,color:b.color,split:true});
+              gs.bullets.push({id:gs.bulletId++,x:b.x,y:b.y,vx:-Math.cos(perp)*spd,vy:-Math.sin(perp)*spd,life:40,type:"quantum",dmg:b.dmg*0.6,color:b.color,split:true});
+            }
+            return false;
+          }
+        }
+        return true;
+      });
+
+      // explosions update
+      gs.explosions=gs.explosions.filter(ex=>{ex.r+=ex.maxR/10;ex.life--;return ex.life>0;});
+
+      // zone
+      const z=gs.zone;
+      z.shrinkTimer--;
+      if(z.shrinkTimer<=0&&z.phase<4){
+        z.shrinkTimer=900; z.phase++;
+        // Phase 1→2: 45%, 2→3: 20%, 3→4: 3% (final deadly ring)
+        z.nextR = z.phase===2?z.maxR*0.45:z.phase===3?z.maxR*0.20:z.maxR*0.03;
+        const ang=rand(0,Math.PI*2),off=z.r*0.15;
+        z.cx=clamp(z.cx+Math.cos(ang)*off,z.nextR+40,MAP_W-z.nextR-40);
+        z.cy=clamp(z.cy+Math.sin(ang)*off,z.nextR+40,MAP_H-z.nextR-40);
+      }
+      if(z.r>z.nextR)z.r-=0.20;
+      const zoneRatio=z.r/z.maxR;
+      const curZoneDmg=cfg.baseZoneDmg*(1+(1-zoneRatio)*8)*(gs.mapCfg?.zoneDmgMult||1.0);
+      const inZone=Math.hypot(p.x-z.cx,p.y-z.cy)<=z.r;
+      if(!inZone)p.hp-=curZoneDmg;
+      const zR=Math.floor(59+(1-zoneRatio)*196),zG=Math.floor(130-(1-zoneRatio)*130),zB=Math.floor(246-(1-zoneRatio)*246);
+
+      // Advanced steer: tests 24 directions, checks 3 points along path, instant teleport when stuck
+      const steer=(entity,targetAng,spd,r)=>{
+        if(entity.escapeTimer>0){
+          entity.escapeTimer--;
+          const moved=slide(entity,Math.cos(entity.escapeAngle)*spd*2,Math.sin(entity.escapeAngle)*spd*2,r,gs);
+          // If escape angle itself is blocked, immediately pick a new random one
+          if(!moved){entity.escapeAngle=rand(0,Math.PI*2); entity.escapeTimer=Math.min(entity.escapeTimer+5,20);}
+          return true;
+        }
+        // Check 24 angles: 0°, ±15°, ±30°, ±45°, ±60°, ±75°, ±90°, ±105°, ±120°, ±135°, ±150°, ±165°, 180°
+        const offsets=[0,-0.26,0.26,-0.52,0.52,-0.79,0.79,-1.05,1.05,-1.31,1.31,-1.57,1.57,-1.83,1.83,-2.09,2.09,-2.36,2.36,-2.62,2.62,-2.88,2.88,Math.PI];
+        for(const off of offsets){
+          const a=targetAng+off;
+          // Check 3 probes along the path (near, mid, far)
+          const ok=[2,4,7].every(mult=>{
+            const tx=clamp(entity.x+Math.cos(a)*spd*mult,r,MAP_W-r);
+            const ty=clamp(entity.y+Math.sin(a)*spd*mult,r,MAP_H-r);
+            return !blk(tx,ty,r,gs);
+          });
+          if(ok){
+            entity.angle=a;
+            slide(entity,Math.cos(a)*spd,Math.sin(a)*spd,r,gs);
+            entity.stuckTimer=0;
+            return true;
+          }
+        }
+        // All 24 angles blocked — escape with random burst
+        entity.escapeAngle=rand(0,Math.PI*2);
+        entity.escapeTimer=22;
+        slide(entity,Math.cos(entity.escapeAngle)*spd*2,Math.sin(entity.escapeAngle)*spd*2,r,gs);
+        return false;
+      };
+
+      // enemy AI (move into zone, then chase)
+      for(const e of gs.enemies){
+        if(!e.alive)continue;
+        const prevX=e.x, prevY=e.y;
+
+        // Push out if already inside a wall
+        pushOut(e,ENEMY_R,gs);
+
+        // Enemy loses health outside zone (same scaling as player)
+        const eInZone=Math.hypot(e.x-z.cx,e.y-z.cy)<=z.r;
+        if(!eInZone) e.hp-=curZoneDmg*0.5;
+        if(e.hp<=0){e.alive=false;p.kills++;spark(gs,e.x,e.y,"#f97316",8);continue;}
+
+        const dp=Math.hypot(e.x-p.x,e.y-p.y);
+        if(e.alertTimer>0)e.alertTimer--;
+
+        if(!eInZone){
+          // Must get inside zone — smart steer toward center
+          const ang=Math.atan2(z.cy-e.y,z.cx-e.x);
+          steer(e,ang,cfg.enemySpeed*1.4,ENEMY_R);
+          // Still shoot if player is close
+          if(dp<300){e.shootTimer--;if(e.shootTimer<=0){e.shootTimer=cfg.enemyShootCd;const shootAng=Math.atan2(p.y-e.y,p.x-e.x),sp=(Math.random()-0.5)*0.25,bA=shootAng+sp;const eDmg=e.weaponData?e.weaponData.damage*0.6:cfg.enemyDamage;const eBCol=e.weaponData?e.weaponData.bulletColor:"#fdba74";gs.enemyBullets.push({id:gs.bulletId++,x:e.x+Math.cos(bA)*18,y:e.y+Math.sin(bA)*18,vx:Math.cos(bA)*9,vy:Math.sin(bA)*9,life:90,dmg:eDmg,color:eBCol});}}
+        } else if(dp<420||e.alertTimer>0){
+          e.state="chase";
+          const ang=Math.atan2(p.y-e.y,p.x-e.x);
+          // Keep a shooting distance — back off if too close
+          const minDist=110;
+          if(dp<minDist){
+            // Move away from player but ALWAYS face them (no glitch in aim)
+            const backAng=ang+Math.PI;
+            slide(e,Math.cos(backAng)*cfg.enemySpeed*0.8,Math.sin(backAng)*cfg.enemySpeed*0.8,ENEMY_R,gs);
+            e.angle=ang; // face player regardless of movement direction
+          } else {
+            steer(e,ang,cfg.enemySpeed,ENEMY_R);
+          }
+          e.shootTimer--;
+          if(e.shootTimer<=0&&dp<460){
+            e.shootTimer=rand(cfg.enemyShootCd,cfg.enemyShootCd*1.8);
+            const sp=(Math.random()-0.5)*0.2,bA=ang+sp;
+            const eDmg=e.weaponData?e.weaponData.damage*0.6:cfg.enemyDamage;
+            const eBCol=e.weaponData?e.weaponData.bulletColor:"#fdba74";
+            gs.enemyBullets.push({id:gs.bulletId++,x:e.x+Math.cos(bA)*18,y:e.y+Math.sin(bA)*18,vx:Math.cos(bA)*9,vy:Math.sin(bA)*9,life:90,dmg:eDmg,color:eBCol});
+          }
+        } else {
+          e.state="patrol";
+          if(Math.hypot(e.x-e.targetX,e.y-e.targetY)<24){
+            const ang2=rand(0,Math.PI*2);
+            e.targetX=clamp(z.cx+Math.cos(ang2)*rand(30,z.r*0.75),ENEMY_R,MAP_W-ENEMY_R);
+            e.targetY=clamp(z.cy+Math.sin(ang2)*rand(30,z.r*0.75),ENEMY_R,MAP_H-ENEMY_R);
+          }
+          const ang=Math.atan2(e.targetY-e.y,e.targetX-e.x);
+          if(!steer(e,ang,0.9,ENEMY_R)){
+            // Blocked even after steering — pick new target
+            const ang2=rand(0,Math.PI*2);
+            e.targetX=clamp(z.cx+Math.cos(ang2)*rand(30,z.r*0.75),ENEMY_R,MAP_W-ENEMY_R);
+            e.targetY=clamp(z.cy+Math.sin(ang2)*rand(30,z.r*0.75),ENEMY_R,MAP_H-ENEMY_R);
+          }
+        }
+
+        // Stuck detection: barely moved for 15 frames → immediate warp to clear spot near zone
+        if(!e.stuckTimer)e.stuckTimer=0;
+        if(Math.hypot(e.x-prevX,e.y-prevY)<0.15)e.stuckTimer++;
+        else e.stuckTimer=Math.max(0,e.stuckTimer-2);
+        if(e.stuckTimer>15){
+          e.stuckTimer=0;e.escapeTimer=0;
+          // Search spiraling outward from zone center for a clear spot
+          let placed=false;
+          for(let att=0;att<50&&!placed;att++){
+            const ang3=rand(0,Math.PI*2);
+            const dist3=rand(ENEMY_R*2,Math.max(ENEMY_R*3,z.r*0.7));
+            const tx=clamp(z.cx+Math.cos(ang3)*dist3,ENEMY_R+10,MAP_W-ENEMY_R-10);
+            const ty=clamp(z.cy+Math.sin(ang3)*dist3,ENEMY_R+10,MAP_H-ENEMY_R-10);
+            if(!blk(tx,ty,ENEMY_R+4,gs)){e.x=tx;e.y=ty;placed=true;}
+          }
+          // Last resort: warp directly toward zone center offset by a few pixels
+          if(!placed){e.x=clamp(z.cx+rand(-30,30),ENEMY_R+5,MAP_W-ENEMY_R-5);e.y=clamp(z.cy+rand(-30,30),ENEMY_R+5,MAP_H-ENEMY_R-5);}
+        }
+      }
+
+      // enemy bullets hit player
+      gs.enemyBullets=gs.enemyBullets.filter(b=>{
+        b.x+=b.vx;b.y+=b.vy;b.life--;
+        if(b.life<=0||b.x<0||b.x>MAP_W||b.y<0||b.y>MAP_H)return false;
+        if(blk(b.x,b.y,BULLET_R,gs))return false;
+        if(Math.hypot(b.x-p.x,b.y-p.y)<PLAYER_R+BULLET_R){let dmg=b.dmg;if(p.armor>0){const abs=Math.min(p.armor,dmg*0.5);p.armor-=abs;dmg-=abs;}p.hp-=dmg;spark(gs,p.x,p.y,"#ef4444",4);return false;}
+        return true;
+      });
+
+      // loot
+      for(const l of gs.loots){if(l.picked)continue;if(Math.hypot(l.x-p.x,l.y-p.y)<PLAYER_R+LOOT_R){l.picked=true;if(l.type==="health")p.hp=Math.min(p.maxHp,p.hp+40);if(l.type==="armor")p.armor=Math.min(100,p.armor+50);if(l.type==="ammo")p.ammo=Math.min(gun.magazine,p.ammo+Math.floor(gun.magazine*0.5));if(l.type==="gun"){p.ammo=gun.magazine;p.reloadTimer=0;}spark(gs,l.x,l.y,LOOT_COLORS[l.type],8);}}
+
+      // particles
+      gs.particles=gs.particles.filter(pt=>{pt.x+=pt.vx;pt.y+=pt.vy;pt.vx*=0.9;pt.vy*=0.9;pt.life--;return pt.life>0;});
+
+      // end check
+      if(p.hp<=0){p.hp=0;ended=true;setCoins(c=>c+p.kills*3);setPhase("dead");return;}
+      const aliveCount=gs.enemies.filter(e=>e.alive).length;
+      if(aliveCount===0){ended=true;const earned=cfg.coinReward+p.kills*5;setCoins(c=>c+earned);setMaxUnlocked(prev=>Math.max(prev,currentLvl<TOTAL_LEVELS?currentLvl+1:TOTAL_LEVELS));setMapProgress(prev=>({...prev,[currentMap]:Math.max(prev[currentMap]||1,currentLvl<TOTAL_LEVELS?currentLvl+1:TOTAL_LEVELS)}));setPhase("win");return;}
+
+      if(gs.tick%6===0)setHud({hp:Math.round(p.hp),armor:Math.round(p.armor),ammo:p.ammo,maxAmmo:gun.magazine,kills:p.kills,alive:aliveCount+1,reloading:p.reloadTimer>0,zoneClose:!inZone,zoneDmg:Math.round(curZoneDmg*10)/10,gunName:gun.name,gunIcon:gun.icon});
+
+      // ─── DRAW ─────────────────────────────────────────────────────────
+      canvas.width=W;canvas.height=H;
+      ctx.clearRect(0,0,W,H);
+      ctx.save();ctx.translate(-camX,-camY);
+
+      // ── GROUND — each map has strong unique colors ─────────────────────
+      const mc=gs.mapCfg||MAPS[0];
+      const mid=mc.id;
+
+      // Fill base ground
+      ctx.fillStyle=mc.ground; ctx.fillRect(0,0,MAP_W,MAP_H);
+
+      // Checker tile in ground2
+      ctx.fillStyle=mc.ground2;
+      for(let gx=0;gx<MAP_W;gx+=80)for(let gy=0;gy<MAP_H;gy+=80)if((gx+gy)%160===0)ctx.fillRect(gx,gy,80,80);
+
+      // Map-specific overlay details
+      const gd=gs.groundDeco||[];
+      if(mid==="desert"){
+        // Bright wavy sand ripples
+        ctx.strokeStyle="rgba(180,100,0,0.30)"; ctx.lineWidth=1.5;
+        for(let gy=0;gy<MAP_H;gy+=24){
+          ctx.beginPath();
+          for(let gx=0;gx<MAP_W;gx+=4) ctx[gx===0?"moveTo":"lineTo"](gx, gy+Math.sin(gx*0.025)*7);
+          ctx.stroke();
+        }
+        // Scattered sand spots
+        ctx.fillStyle="rgba(210,150,50,0.18)";
+        for(let gx=0;gx<MAP_W;gx+=55) for(let gy=0;gy<MAP_H;gy+=55) ctx.fillRect(gx+10,gy+10,28,28);
+      }
+      else if(mid==="urban"){
+        // Dark asphalt roads
+        ctx.fillStyle="rgba(10,15,25,0.60)";
+        for(let gx=0;gx<MAP_W;gx+=300){ ctx.fillRect(gx,0,36,MAP_H); }
+        for(let gy=0;gy<MAP_H;gy+=300){ ctx.fillRect(0,gy,MAP_W,36); }
+        // Road lane markings
+        ctx.fillStyle="rgba(250,250,80,0.20)";
+        for(let gx=18;gx<MAP_W;gx+=300) for(let gy=0;gy<MAP_H;gy+=48) ctx.fillRect(gx,gy,4,24);
+        for(let gy=18;gy<MAP_H;gy+=300) for(let gx=0;gx<MAP_W;gx+=48) ctx.fillRect(gx,gy,24,4);
+      }
+      else if(mid==="forest"){
+        // Dark moss patches
+        ctx.fillStyle="rgba(2,28,8,0.50)";
+        for(const d of gd){ ctx.beginPath(); ctx.ellipse(d.x,d.y,d.rx,d.ry,d.a,0,Math.PI*2); ctx.fill(); }
+        // Root lines on ground
+        ctx.strokeStyle="rgba(5,40,10,0.40)"; ctx.lineWidth=3;
+        for(let i=0;i<gd.length&&i<20;i+=2){
+          const d=gd[i]; ctx.beginPath(); ctx.moveTo(d.x,d.y); ctx.lineTo(d.x+d.rx*1.5,d.y+d.ry); ctx.stroke();
+        }
+      }
+      else if(mid==="arctic"){
+        // Bright white snow sparkles — very visible on light blue/grey ground
+        ctx.fillStyle="rgba(255,255,255,0.55)";
+        for(const d of gd) ctx.fillRect(d.x,d.y,3,3);
+        // Ice shimmer patches
+        ctx.fillStyle="rgba(186,230,253,0.20)";
+        for(let i=0;i<gd.length;i+=5){
+          const d=gd[i]; ctx.beginPath(); ctx.ellipse(d.x,d.y,22,10,d.x*0.01,0,Math.PI*2); ctx.fill();
+        }
+        // Frost lines
+        ctx.strokeStyle="rgba(224,242,254,0.25)"; ctx.lineWidth=1;
+        for(let i=0;i<gd.length;i+=8){
+          const d=gd[i]; ctx.beginPath(); ctx.moveTo(d.x-15,d.y); ctx.lineTo(d.x+15,d.y); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(d.x,d.y-10); ctx.lineTo(d.x,d.y+10); ctx.stroke();
+        }
+      }
+      else if(mid==="volcanic"){
+        // Glowing lava crack network — very visible on near-black ground
+        ctx.strokeStyle="rgba(239,68,68,0.50)"; ctx.lineWidth=2;
+        for(const d of gd){ ctx.beginPath(); ctx.moveTo(d.x,d.y); ctx.lineTo(d.x+d.dx,d.y+d.dy); ctx.stroke(); }
+        ctx.strokeStyle="rgba(251,146,60,0.25)"; ctx.lineWidth=1;
+        for(let i=0;i<gd.length;i+=2){ const d=gd[i]; ctx.beginPath(); ctx.moveTo(d.x,d.y); ctx.lineTo(d.x-d.dy*0.4,d.y+d.dx*0.4); ctx.stroke(); }
+        // Lava glow spots
+        ctx.fillStyle="rgba(239,68,68,0.10)";
+        for(let i=0;i<gd.length;i+=4){ const d=gd[i]; ctx.beginPath(); ctx.arc(d.x,d.y,30,0,Math.PI*2); ctx.fill(); }
+      }
+
+      // zone (color shifts red as it shrinks)
+      ctx.save();ctx.strokeStyle=`rgb(${zR},${zG},${zB})`;ctx.lineWidth=3+(1-zoneRatio)*3;ctx.setLineDash([10,7]);ctx.globalAlpha=0.8+(1-zoneRatio)*0.2;
+      ctx.beginPath();ctx.arc(z.cx,z.cy,z.r,0,Math.PI*2);ctx.stroke();
+      ctx.globalAlpha=0.05+(1-zoneRatio)*0.07;ctx.fillStyle=`rgb(${zR},${zG},${zB})`;ctx.fill();ctx.restore();
+
+      // ── MAP-SPECIFIC OBSTACLE DRAWING ─────────────────────────────────
+      for(const o of (gs.obstacles||[])){
+        ctx.save();
+        if(o.type==="tree"){
+          // Grasslands: round layered trees
+          ctx.shadowBlur=4;ctx.shadowColor="#0a3a0a";
+          ctx.fillStyle="#15803d";ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle="#166534";ctx.beginPath();ctx.arc(o.x-3,o.y-3,o.r*0.65,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle="#22c55e";ctx.beginPath();ctx.arc(o.x+2,o.y-4,o.r*0.4,0,Math.PI*2);ctx.fill();
+        }
+        else if(o.type==="cactus"){
+          // Desert: green cactus with cross arms
+          const cx=o.x,cy=o.y,h=o.h,r=o.r;
+          ctx.fillStyle="#15803d";
+          ctx.fillRect(cx-r*0.5,cy-h*0.5,r,h); // trunk
+          ctx.fillRect(cx-r*1.8,cy-h*0.15,r*3.6,r*0.7); // arms horizontal
+          ctx.fillRect(cx-r*1.8,cy-h*0.3,r*0.7,r*0.8); // left arm up
+          ctx.fillRect(cx+r*1.1,cy-h*0.3,r*0.7,r*0.8); // right arm up
+          ctx.fillStyle="#166534";
+          ctx.fillRect(cx-r*0.3,cy-h*0.5,r*0.4,h); // trunk shade
+          // spines
+          ctx.strokeStyle="#4ade80";ctx.lineWidth=1;
+          for(let s=0;s<4;s++){ctx.beginPath();ctx.moveTo(cx-r*0.5-1,cy-h*0.4+s*h*0.28);ctx.lineTo(cx-r,cy-h*0.4+s*h*0.28-2);ctx.stroke();ctx.beginPath();ctx.moveTo(cx+r*0.5,cy-h*0.4+s*h*0.28);ctx.lineTo(cx+r,cy-h*0.4+s*h*0.28-2);ctx.stroke();}
+        }
+        else if(o.type==="dune"){
+          // Desert: sand dune oval (decorative, no collision)
+          ctx.globalAlpha=0.25;ctx.fillStyle="#d97706";
+          ctx.beginPath();ctx.ellipse(o.x,o.y,o.rx,o.ry,0,0,Math.PI*2);ctx.fill();
+        }
+        else if(o.type==="ruin"){
+          // Desert: crumbling sandstone ruin
+          ctx.fillStyle=o.clr;ctx.fillRect(o.x,o.y,o.w,o.h);
+          ctx.strokeStyle="#92400e";ctx.lineWidth=2;ctx.setLineDash([6,4]);ctx.strokeRect(o.x+2,o.y+2,o.w-4,o.h-4);ctx.setLineDash([]);
+          ctx.fillStyle="rgba(180,100,20,0.15)";ctx.fillRect(o.x,o.y,o.w,o.h*0.3); // roof fade
+          // crack lines
+          ctx.strokeStyle="#451a03";ctx.lineWidth=1;ctx.globalAlpha=0.5;
+          ctx.beginPath();ctx.moveTo(o.x+o.w*0.3,o.y);ctx.lineTo(o.x+o.w*0.4,o.y+o.h*0.5);ctx.stroke();
+        }
+        else if(o.type==="cityblock"){
+          // Urban: multi-story building
+          ctx.fillStyle=o.clr;ctx.fillRect(o.x,o.y,o.w,o.h);
+          ctx.fillStyle=o.roofClr;ctx.fillRect(o.x,o.y,o.w,12); // rooftop
+          ctx.strokeStyle="#1f2937";ctx.lineWidth=2;ctx.strokeRect(o.x,o.y,o.w,o.h);
+          // windows grid
+          ctx.fillStyle="rgba(147,197,253,0.35)";
+          for(let wc=0;wc<Math.floor(o.w/28);wc++)for(let wr=0;wr<Math.floor(o.h/24);wr++)ctx.fillRect(o.x+8+wc*28,o.y+16+wr*24,14,10);
+        }
+        else if(o.type==="streetlight"){
+          // Urban: street light pole (decorative)
+          ctx.globalAlpha=0.6;ctx.strokeStyle="#374151";ctx.lineWidth=2;
+          ctx.beginPath();ctx.moveTo(o.x,o.y);ctx.lineTo(o.x,o.y-18);ctx.lineTo(o.x+8,o.y-18);ctx.stroke();
+          ctx.fillStyle="#fde68a";ctx.shadowBlur=8;ctx.shadowColor="#fbbf24";
+          ctx.beginPath();ctx.arc(o.x+8,o.y-18,3,0,Math.PI*2);ctx.fill();
+        }
+        else if(o.type==="bigtree"){
+          // Dark Forest: massive dark layered trees
+          const dark=["#064e3b","#065f46","#047857"][o.tier-1]||"#064e3b";
+          const mid=["#166534","#15803d","#16a34a"][o.tier-1]||"#166534";
+          ctx.shadowBlur=8;ctx.shadowColor="#000";
+          ctx.fillStyle=dark;ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle=mid;ctx.beginPath();ctx.arc(o.x-4,o.y-4,o.r*0.65,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle="#052e16";ctx.beginPath();ctx.arc(o.x+3,o.y-6,o.r*0.38,0,Math.PI*2);ctx.fill();
+          // Trunk peek
+          ctx.fillStyle="#3b1f0a";ctx.fillRect(o.x-3,o.y+o.r*0.5,6,10);
+        }
+        else if(o.type==="boulder"){
+          // Dark Forest: mossy boulder
+          ctx.fillStyle="#374151";ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle="#4b5563";ctx.beginPath();ctx.arc(o.x-o.r*0.25,o.y-o.r*0.25,o.r*0.55,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle="#166534";ctx.globalAlpha=0.4;ctx.beginPath();ctx.arc(o.x,o.y-o.r*0.2,o.r*0.5,0,Math.PI*2);ctx.fill(); // moss
+        }
+        else if(o.type==="mushroom"){
+          // Dark Forest: giant mushroom (decorative)
+          ctx.globalAlpha=0.75;
+          ctx.fillStyle="#7f1d1d";ctx.beginPath();ctx.ellipse(o.x,o.y-o.r*0.5,o.r,o.r*0.7,0,0,Math.PI*2);ctx.fill(); // cap
+          ctx.fillStyle="#fecaca";// white spots
+          ctx.beginPath();ctx.arc(o.x-o.r*0.3,o.y-o.r*0.6,o.r*0.15,0,Math.PI*2);ctx.fill();
+          ctx.beginPath();ctx.arc(o.x+o.r*0.25,o.y-o.r*0.8,o.r*0.12,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle="#f5f5f4";ctx.fillRect(o.x-o.r*0.15,o.y-o.r*0.2,o.r*0.3,o.r*0.5); // stem
+        }
+        else if(o.type==="pinetree"){
+          // Arctic: snow-covered pine tree (triangle spike)
+          ctx.fillStyle="#1e3a5f"; // dark trunk
+          ctx.fillRect(o.x-3,o.y,6,o.r*0.8);
+          // 3 layered triangles (snow-covered)
+          for(let layer=0;layer<3;layer++){
+            const ly=o.y-(layer*o.r*0.55);
+            const lw=o.r*(1-layer*0.25);
+            ctx.fillStyle="#166534";
+            ctx.beginPath();ctx.moveTo(o.x,ly-o.r*0.9);ctx.lineTo(o.x-lw,ly);ctx.lineTo(o.x+lw,ly);ctx.closePath();ctx.fill();
+            // Snow on top
+            ctx.fillStyle="rgba(226,232,240,0.85)";
+            ctx.beginPath();ctx.moveTo(o.x,ly-o.r*0.9);ctx.lineTo(o.x-lw*0.5,ly-o.r*0.5);ctx.lineTo(o.x+lw*0.5,ly-o.r*0.5);ctx.closePath();ctx.fill();
+          }
+        }
+        else if(o.type==="iceberg"){
+          // Arctic: jagged ice chunk
+          ctx.fillStyle="#bae6fd";ctx.shadowBlur=6;ctx.shadowColor="#7dd3fc";
+          ctx.beginPath();
+          const pts=6;
+          for(let i=0;i<pts;i++){
+            const a=(i/pts)*Math.PI*2,jag=(i%2===0)?o.r:o.r*0.6;
+            if(i===0)ctx.moveTo(o.x+Math.cos(a)*jag,o.y+Math.sin(a)*jag);
+            else ctx.lineTo(o.x+Math.cos(a)*jag,o.y+Math.sin(a)*jag);
+          }ctx.closePath();ctx.fill();
+          ctx.strokeStyle="#e0f2fe";ctx.lineWidth=2;ctx.stroke();
+          ctx.fillStyle="rgba(224,242,254,0.5)";ctx.beginPath();ctx.arc(o.x-o.r*0.2,o.y-o.r*0.2,o.r*0.35,0,Math.PI*2);ctx.fill(); // shine
+        }
+        else if(o.type==="lavarock"){
+          // Volcanic: jagged polygon rock
+          ctx.fillStyle="#292524";ctx.shadowBlur=4;ctx.shadowColor="#ef4444";
+          ctx.beginPath();
+          for(let i=0;i<o.sides;i++){
+            const a=(i/o.sides)*Math.PI*2,jag=o.r*(0.7+Math.sin(i*2.5)*0.3);
+            if(i===0)ctx.moveTo(o.x+Math.cos(a)*jag,o.y+Math.sin(a)*jag);
+            else ctx.lineTo(o.x+Math.cos(a)*jag,o.y+Math.sin(a)*jag);
+          }ctx.closePath();ctx.fill();
+          ctx.strokeStyle="#dc2626";ctx.lineWidth=1.5;ctx.stroke();
+          // Lava glow cracks
+          ctx.strokeStyle="#f97316";ctx.lineWidth=1;ctx.globalAlpha=0.6;
+          ctx.beginPath();ctx.moveTo(o.x-o.r*0.4,o.y);ctx.lineTo(o.x,o.y+o.r*0.5);ctx.lineTo(o.x+o.r*0.3,o.y-o.r*0.2);ctx.stroke();
+        }
+        else if(o.type==="lavapool"){
+          // Volcanic: lava pool (decorative, no collision)
+          ctx.globalAlpha=0.55;
+          const lg=ctx.createRadialGradient(o.x,o.y,0,o.x,o.y,o.rx);
+          lg.addColorStop(0,"#f97316");lg.addColorStop(0.5,"#dc2626");lg.addColorStop(1,"#7f1d1d");
+          ctx.fillStyle=lg;
+          ctx.beginPath();ctx.ellipse(o.x,o.y,o.rx,o.ry,0,0,Math.PI*2);ctx.fill();
+          // shimmer lines
+          ctx.strokeStyle="#fbbf24";ctx.lineWidth=1;ctx.globalAlpha=0.3;
+          ctx.beginPath();ctx.moveTo(o.x-o.rx*0.5,o.y);ctx.lineTo(o.x+o.rx*0.4,o.y-o.ry*0.3);ctx.stroke();
+        }
+        else if(o.type==="building"){
+          // Generic building used by several maps
+          ctx.fillStyle=o.clr;ctx.fillRect(o.x,o.y,o.w,o.h);
+          ctx.strokeStyle="#111";ctx.lineWidth=2;ctx.strokeRect(o.x,o.y,o.w,o.h);
+          ctx.fillStyle="rgba(150,200,255,0.15)";
+          for(let wc=0;wc<Math.floor(o.w/32);wc++)for(let wr=0;wr<Math.floor(o.h/32);wr++)ctx.fillRect(o.x+9+wc*32,o.y+9+wr*32,14,14);
+        }
+        ctx.globalAlpha=1;ctx.shadowBlur=0;
+        ctx.restore();
+      }
+
+      // loots
+      for(const l of gs.loots){if(l.picked)continue;ctx.save();ctx.shadowBlur=10;ctx.shadowColor=LOOT_COLORS[l.type];ctx.fillStyle=LOOT_COLORS[l.type];ctx.beginPath();ctx.arc(l.x,l.y,LOOT_R,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.fillStyle="#fff";ctx.font="bold 10px sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(LOOT_LABELS[l.type],l.x,l.y);ctx.restore();}
+
+      // explosions
+      for(const ex of gs.explosions){ctx.save();ctx.globalAlpha=ex.life/20*0.6;ctx.strokeStyle="#f97316";ctx.lineWidth=3;ctx.beginPath();ctx.arc(ex.x,ex.y,ex.r,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=ex.life/20*0.2;ctx.fillStyle="#fef08a";ctx.fill();ctx.restore();}
+
+      // enemy bullets
+      for(const b of gs.enemyBullets){
+        ctx.save();
+        const bc=b.color||"#fdba74";
+        ctx.shadowBlur=5;ctx.shadowColor=bc;ctx.fillStyle=bc;
+        ctx.beginPath();ctx.arc(b.x,b.y,BULLET_R,0,Math.PI*2);ctx.fill();
+        ctx.restore();
+      }
+
+      // enemies
+      for(const e of gs.enemies){
+        if(!e.alive)continue;
+        const eInZ=Math.hypot(e.x-z.cx,e.y-z.cy)<=z.r;
+        const lvlT=(currentLvl-1)/(TOTAL_LEVELS-1);
+        const esk=e.skinData;
+        const eBodyCol  = esk ? esk.body   : e.state==="chase"?`hsl(${Math.floor(lvlT*20)},90%,45%)`:`hsl(${Math.floor(lvlT*15)},70%,28%)`;
+        const eBorderCol= esk ? esk.border : e.state==="chase"?"#fca5a5":"#991b1b";
+        const eHelmCol  = esk ? esk.helmet : eBodyCol;
+        const eGlow     = esk?.glow || eBorderCol;
+
+        ctx.save();ctx.translate(e.x,e.y);ctx.rotate(e.angle);
+        // glow for skinned enemies
+        if(esk){ctx.shadowBlur=12;ctx.shadowColor=eGlow;}
+        ctx.fillStyle=eBodyCol;ctx.beginPath();ctx.arc(0,0,ENEMY_R,0,Math.PI*2);ctx.fill();
+        ctx.shadowBlur=0;
+        ctx.strokeStyle=eBorderCol;ctx.lineWidth=2;ctx.stroke();
+        ctx.fillStyle=eHelmCol;ctx.beginPath();ctx.arc(-1,-2,ENEMY_R*0.62,0,Math.PI*2);ctx.fill();
+
+        // special skin decorations
+        if(esk?.special==="horns"){
+          ctx.fillStyle=eGlow;ctx.beginPath();ctx.moveTo(-6,-ENEMY_R);ctx.lineTo(-9,-ENEMY_R-7);ctx.lineTo(-3,-ENEMY_R);ctx.fill();
+          ctx.beginPath();ctx.moveTo(6,-ENEMY_R);ctx.lineTo(9,-ENEMY_R-7);ctx.lineTo(3,-ENEMY_R);ctx.fill();
+        }
+        if(esk?.special==="crown"){
+          ctx.fillStyle=eGlow;ctx.fillRect(-8,-ENEMY_R-2,16,4);
+          for(let cx2=-6;cx2<=6;cx2+=6){ctx.beginPath();ctx.moveTo(cx2,-ENEMY_R+2);ctx.lineTo(cx2,-ENEMY_R-6);ctx.lineTo(cx2+3,-ENEMY_R-2);ctx.fill();}
+        }
+        if(esk?.special==="dragon"){
+          ctx.strokeStyle=eGlow;ctx.lineWidth=1.5;
+          ctx.beginPath();ctx.moveTo(ENEMY_R,0);ctx.lineTo(ENEMY_R+5,-6);ctx.lineTo(ENEMY_R+10,0);ctx.lineTo(ENEMY_R+5,6);ctx.closePath();ctx.stroke();
+        }
+        if(esk?.special==="skull"){
+          ctx.fillStyle=eGlow;ctx.font=`bold ${Math.floor(ENEMY_R*0.9)}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("☠",-1,-1);
+        }
+
+        // weapon barrel
+        const ewCol = e.weaponData ? e.weaponData.bulletColor : "#450a0a";
+        const ewLen = e.weaponData ? Math.min(e.weaponData.barrelLen||14,20) : 14;
+        ctx.shadowBlur=0;ctx.fillStyle=ewCol;ctx.fillRect(8,-3,ewLen,6);
+
+        if(!eInZ){ctx.strokeStyle="#ef4444";ctx.lineWidth=2;ctx.setLineDash([4,3]);ctx.beginPath();ctx.arc(0,0,ENEMY_R+4,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);}
+        ctx.restore();
+
+        // HP bar
+        ctx.fillStyle="#111";ctx.fillRect(e.x-14,e.y-ENEMY_R-8,28,5);
+        ctx.fillStyle=`hsl(${(e.hp/e.maxHp)*120},80%,45%)`;ctx.fillRect(e.x-14,e.y-ENEMY_R-8,28*(e.hp/e.maxHp),5);
+        // weapon icon above HP bar for armed enemies
+        if(e.weaponData){
+          ctx.font="8px sans-serif";ctx.textAlign="center";ctx.textBaseline="bottom";
+          ctx.fillText(e.weaponData.icon,e.x,e.y-ENEMY_R-9);
+        }
+      }
+
+      // swing effects (melee)
+      gs.swingEffects=gs.swingEffects.filter(sw=>{
+        const alpha=sw.life/sw.maxLife;
+        ctx.save();ctx.globalAlpha=alpha*0.9;
+        ctx.strokeStyle="#fbbf24";ctx.lineWidth=5*alpha;
+        ctx.shadowBlur=12*alpha;ctx.shadowColor="#f97316";
+        ctx.beginPath();ctx.arc(sw.x-camX,sw.y-camY,sw.range,sw.angle-sw.arc/2,sw.angle+sw.arc/2);
+        ctx.stroke();
+        ctx.globalAlpha=alpha*0.25;ctx.fillStyle="#fbbf24";
+        ctx.beginPath();ctx.arc(sw.x-camX,sw.y-camY,sw.range,sw.angle-sw.arc/2,sw.angle+sw.arc/2);
+        ctx.lineTo(sw.x-camX,sw.y-camY);ctx.closePath();ctx.fill();
+        ctx.restore();
+        sw.life--;return sw.life>0;
+      });
+
+      // player bullets
+      for(const b of gs.bullets){
+        ctx.save();
+        if(b.type==="flame"){
+          const alpha=b.life/gun.range;ctx.globalAlpha=alpha;ctx.shadowBlur=8;ctx.shadowColor=b.color;ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(b.x,b.y,3+alpha*3,0,Math.PI*2);ctx.fill();
+        }else if(b.type==="laser"){
+          ctx.shadowBlur=16;ctx.shadowColor="#00ffff";ctx.strokeStyle="#00ffff";ctx.lineWidth=3;ctx.globalAlpha=0.9;
+          ctx.beginPath();ctx.moveTo(b.x-b.vx*2,b.y-b.vy*2);ctx.lineTo(b.x,b.y);ctx.stroke();
+          ctx.fillStyle="#ffffff";ctx.beginPath();ctx.arc(b.x,b.y,3,0,Math.PI*2);ctx.fill();
+        }else if(b.type==="plasma"){
+          ctx.shadowBlur=14;ctx.shadowColor="#a855f7";ctx.fillStyle="#a855f7";ctx.beginPath();ctx.arc(b.x,b.y,6,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle="#e879f9";ctx.beginPath();ctx.arc(b.x,b.y,3,0,Math.PI*2);ctx.fill();
+        }else if(b.type==="rail"){
+          ctx.shadowBlur=18;ctx.shadowColor="#fbbf24";ctx.strokeStyle="#fbbf24";ctx.lineWidth=4;ctx.globalAlpha=0.95;
+          ctx.beginPath();ctx.moveTo(b.x-b.vx*3,b.y-b.vy*3);ctx.lineTo(b.x,b.y);ctx.stroke();
+          ctx.fillStyle="#fff";ctx.globalAlpha=1;ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);ctx.fill();
+        }else if(b.type==="quantum"){
+          ctx.shadowBlur=12;ctx.shadowColor="#34d399";ctx.fillStyle="#34d399";ctx.beginPath();ctx.arc(b.x,b.y,5,0,Math.PI*2);ctx.fill();
+          ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(b.x,b.y,2,0,Math.PI*2);ctx.fill();
+        }else if(b.type==="missile"){
+          ctx.shadowBlur=12;ctx.shadowColor=b.color||"#ef4444";ctx.fillStyle=b.color||"#ef4444";ctx.beginPath();ctx.arc(b.x,b.y,6,0,Math.PI*2);ctx.fill();ctx.fillStyle="#fbbf24";ctx.beginPath();ctx.arc(b.x,b.y,3,0,Math.PI*2);ctx.fill();spark(gsRef.current,b.x,b.y,"#f97316",1,2);
+        }else if(b.type==="explosive"){
+          ctx.shadowBlur=10;ctx.shadowColor="#f87171";ctx.fillStyle="#f87171";ctx.beginPath();ctx.arc(b.x,b.y,5,0,Math.PI*2);ctx.fill();ctx.fillStyle="#fbbf24";ctx.beginPath();ctx.arc(b.x,b.y,2.5,0,Math.PI*2);ctx.fill();
+        }else{
+          ctx.shadowBlur=7;ctx.shadowColor=b.color;ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(b.x,b.y,b.type==="shotgun"?3:BULLET_R,0,Math.PI*2);ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // player
+      if(p.alive){
+        ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.angle);
+        ctx.fillStyle="rgba(0,0,0,0.25)";ctx.beginPath();ctx.ellipse(2,4,PLAYER_R,PLAYER_R*0.6,0,0,Math.PI*2);ctx.fill();
+        // Draw skin image OR fallback color
+        const skinImg=sk.img?skinImgRef.current[sk.id]:null;
+        if(skinImg&&skinImg.complete&&skinImg.naturalWidth>0){
+          ctx.save();
+          ctx.shadowBlur=14;ctx.shadowColor=sk.glow||sk.border;
+          ctx.beginPath();ctx.arc(0,0,PLAYER_R,0,Math.PI*2);ctx.clip();
+          ctx.drawImage(skinImg,-PLAYER_R,-PLAYER_R,PLAYER_R*2,PLAYER_R*2);
+          ctx.restore();
+          ctx.strokeStyle=sk.border;ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,PLAYER_R,0,Math.PI*2);ctx.stroke();
+        }else{
+          ctx.fillStyle=sk.body;ctx.beginPath();ctx.arc(0,0,PLAYER_R,0,Math.PI*2);ctx.fill();
+          ctx.strokeStyle=sk.border;ctx.lineWidth=2.5;ctx.stroke();
+          ctx.fillStyle=sk.helmet;ctx.beginPath();ctx.arc(-1,-2,PLAYER_R*0.65,0,Math.PI*2);ctx.fill();
+        }
+        // draw gun barrel (color based on equipped gun)
+        const gunColor=gun.id==="flame"?"#c2410c":gun.id==="missile"?"#7f1d1d":sk.gun;
+        ctx.fillStyle=gunColor;ctx.fillRect(10,-4,gun.barrelLen,8);
+        ctx.fillStyle="#333";ctx.fillRect(14,-3,gun.barrelLen-4,6);
+        if(gun.id==="missile"){ctx.fillStyle="#450a0a";ctx.fillRect(10+gun.barrelLen-4,-6,8,12);}
+        if(gun.id==="flame"){ctx.fillStyle="#c2410c";ctx.fillRect(10+gun.barrelLen-2,-8,4,16);}
+        // premium skin special decorations
+        if(sk.special==="horns"){
+          ctx.shadowBlur=8;ctx.shadowColor=sk.glow||sk.border;ctx.fillStyle=sk.border;
+          ctx.beginPath();ctx.moveTo(-6,-PLAYER_R);ctx.lineTo(-10,-PLAYER_R-9);ctx.lineTo(-2,-PLAYER_R);ctx.fill();
+          ctx.beginPath();ctx.moveTo(6,-PLAYER_R);ctx.lineTo(10,-PLAYER_R-9);ctx.lineTo(2,-PLAYER_R);ctx.fill();
+          ctx.shadowBlur=0;
+        }
+        if(sk.special==="crown"){
+          ctx.shadowBlur=6;ctx.shadowColor=sk.glow||sk.border;ctx.fillStyle=sk.border;
+          ctx.fillRect(-9,-PLAYER_R-2,18,4);
+          for(let ci=-6;ci<=6;ci+=6){ctx.beginPath();ctx.moveTo(ci,-PLAYER_R+2);ctx.lineTo(ci-3,-PLAYER_R-7);ctx.lineTo(ci+3,-PLAYER_R-7);ctx.closePath();ctx.fill();}
+          ctx.shadowBlur=0;
+        }
+        if(sk.special==="dragon"){
+          ctx.shadowBlur=6;ctx.shadowColor=sk.glow||sk.border;ctx.strokeStyle=sk.border;ctx.lineWidth=2;
+          ctx.beginPath();ctx.moveTo(PLAYER_R,0);ctx.lineTo(PLAYER_R+7,-8);ctx.lineTo(PLAYER_R+12,0);ctx.lineTo(PLAYER_R+7,8);ctx.closePath();ctx.stroke();
+          ctx.shadowBlur=0;
+        }
+        if(sk.special==="skull"){
+          ctx.shadowBlur=4;ctx.shadowColor=sk.glow||sk.border;ctx.fillStyle=sk.border;
+          ctx.font=`bold ${Math.floor(PLAYER_R*0.9)}px sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("☠",0,0);
+          ctx.shadowBlur=0;
+        }
+        ctx.restore();
+      }
+
+      // particles
+      for(const pt of gs.particles){ctx.globalAlpha=pt.life/36;ctx.fillStyle=pt.color;ctx.beginPath();ctx.arc(pt.x,pt.y,3,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}
+      ctx.restore();
+
+      // minimap
+      const MM=100,MMS=MM/MAP_W,MMX=W-MM-10,MMY=10;
+      ctx.fillStyle="rgba(0,0,0,0.55)";ctx.fillRect(MMX,MMY,MM,MM);
+      ctx.strokeStyle="#4b5563";ctx.lineWidth=1;ctx.strokeRect(MMX,MMY,MM,MM);
+      ctx.strokeStyle=`rgb(${zR},${zG},${zB})`;ctx.lineWidth=1.2;ctx.setLineDash([3,3]);
+      ctx.beginPath();ctx.arc(MMX+z.cx*MMS,MMY+z.cy*MMS,z.r*MMS,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+      for(const e of gs.enemies){if(!e.alive)continue;ctx.fillStyle=e.state==="chase"?"#ef4444":"#f97316";ctx.beginPath();ctx.arc(MMX+e.x*MMS,MMY+e.y*MMS,2,0,Math.PI*2);ctx.fill();}
+      ctx.fillStyle=sk.border;ctx.beginPath();ctx.arc(MMX+p.x*MMS,MMY+p.y*MMS,3.5,0,Math.PI*2);ctx.fill();
+
+      // joystick
+      const jrDraw=joyRef.current;
+      if(jrDraw.active){ctx.save();ctx.globalAlpha=0.25;ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(jrDraw.startX,jrDraw.startY,55,0,Math.PI*2);ctx.fill();ctx.globalAlpha=0.6;ctx.fillStyle=sk.border;ctx.beginPath();ctx.arc(jrDraw.startX+jrDraw.dx*55,jrDraw.startY+jrDraw.dy*55,22,0,Math.PI*2);ctx.fill();ctx.restore();
+      }else{ctx.save();ctx.globalAlpha=0.08;ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(W*0.22,H-130,55,0,Math.PI*2);ctx.fill();ctx.globalAlpha=0.11;ctx.fillStyle="#22c55e";ctx.beginPath();ctx.arc(W*0.22,H-130,22,0,Math.PI*2);ctx.fill();ctx.restore();}
+
+      // level badge
+      ctx.fillStyle="rgba(0,0,0,0.6)";try{ctx.beginPath();ctx.roundRect(W/2-38,6,76,26,8);ctx.fill();}catch(e){ctx.fillRect(W/2-38,6,76,26);}
+      ctx.fillStyle="#fbbf24";ctx.font="bold 13px sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(`LVL ${currentLvl}`,W/2,19);
+
+      animRef.current=requestAnimationFrame(loop);
+    }
+    animRef.current=requestAnimationFrame(loop);
+    return()=>{if(animRef.current)cancelAnimationFrame(animRef.current);};
+  },[phase,currentLvl]);
+
+  const barC=v=>v>60?"#22c55e":v>30?"#f59e0b":"#ef4444";
+  const filteredGuns=(gunFilter==="all"?GUNS:GUNS.filter(g=>g.rarity===gunFilter)).filter(g=>g.rarity!=="premium");
+
+  // ── stat bar helper ─────────────────────────────────────────────────────
+  const StatBar=({label,value,max,color})=>(
+    <div style={{marginBottom:5}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+        <span style={{color:"#64748b",fontSize:10}}>{label}</span>
+        <span style={{color,fontSize:10,fontWeight:700}}>{value}</span>
+      </div>
+      <div style={{height:5,background:"#1e293b",borderRadius:3,overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${Math.min(100,(value/max)*100)}%`,background:color,borderRadius:3}}/>
+      </div>
+    </div>
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // MENU
+  if(phase==="menu")return(
+    <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"system-ui,sans-serif",overflowY:"auto",paddingBottom:40,userSelect:"none",WebkitUserSelect:"none"}}>
+      <style>{`*{user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}`}</style>
+      {/* Portrait rotate overlay */}
+      {isPortrait&&(
+        <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:9999}}>
+          <div style={{fontSize:64,marginBottom:16}}>📱</div>
+          <div style={{fontSize:22,fontWeight:900,color:"#fbbf24",marginBottom:8}}>Rotate Your Phone</div>
+          <div style={{color:"#64748b",fontSize:14,textAlign:"center",padding:"0 32px"}}>DOT WAR BATTLEZONE plays best in landscape mode</div>
+          <div style={{fontSize:40,marginTop:20}}>↻</div>
+        </div>
+      )}
+      {notification&&<div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",background:"#22c55e",borderRadius:10,padding:"10px 24px",color:"#fff",fontWeight:700,fontSize:14,zIndex:999,whiteSpace:"nowrap",boxShadow:"0 4px 20px #22c55e44"}}>{notification}</div>}
+      <img src={THUMBNAIL} alt="DOT WAR BATTLEZONE" style={{width:160,height:160,borderRadius:20,border:"3px solid #22c55e",boxShadow:"0 0 30px #22c55e88",marginTop:44,marginBottom:8,objectFit:"cover"}}/>
+      <div style={{fontSize:28,fontWeight:900,letterSpacing:3,color:"#fbbf24",textShadow:"0 0 28px #f59e0b88",marginBottom:2,textAlign:"center"}}>DOT WAR</div>
+      <div style={{fontSize:22,fontWeight:900,letterSpacing:5,color:"#ef4444",textShadow:"0 0 20px #ef444488",marginBottom:4,textAlign:"center"}}>BATTLEZONE</div>
+      <div style={{color:"#475569",fontSize:11,letterSpacing:3,marginBottom:22}}>LAST ONE STANDING</div>
+      <div style={{display:"flex",gap:12,marginBottom:26}}>
+        <div style={{background:"#1e293b",border:"1px solid #334155",borderRadius:30,padding:"7px 18px",display:"flex",alignItems:"center",gap:7}}>
+          <span style={{fontSize:18}}>🪙</span><span style={{color:"#fbbf24",fontWeight:900,fontSize:16}}>{coins}</span>
+        </div>
+        <div style={{background:"#1e293b",border:"1px solid #334155",borderRadius:30,padding:"7px 18px",display:"flex",alignItems:"center",gap:7}}>
+          <span style={{fontSize:14}}>🏆</span><span style={{color:"#a78bfa",fontWeight:900,fontSize:14}}>LVL {Math.min(maxUnlocked,TOTAL_LEVELS)}</span>
+        </div>
+        <div style={{background:"#1e293b",border:"1px solid #334155",borderRadius:30,padding:"7px 14px",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:14}}>{activeGun.icon}</span><span style={{color:RARITY_COLOR[activeGun.rarity],fontWeight:700,fontSize:12}}>{activeGun.name}</span>
+        </div>
+      </div>
+      {/* SHOP button — top right corner */}
+      <div onTouchStart={e=>{e.preventDefault();setPhase("shop");}} onClick={()=>setPhase("shop")}
+        style={{position:"absolute",top:14,right:14,background:"linear-gradient(135deg,#7c3aed,#4c1d95)",border:"1.5px solid #a855f7",borderRadius:14,padding:"10px 16px",display:"flex",alignItems:"center",gap:6,cursor:"pointer",WebkitTapHighlightColor:"transparent",boxShadow:"0 4px 18px #7c3aed55"}}>
+        <span style={{fontSize:16}}>💎</span>
+        <div>
+          <div style={{color:"#f0abfc",fontWeight:900,fontSize:12,lineHeight:1}}>SHOP</div>
+          <div style={{color:"#a78bfa",fontSize:9,lineHeight:1.2}}>Premium</div>
+        </div>
+      </div>
+
+      {[
+        {label:"▶   PLAY",      color:"#4ade80", action:()=>setPhase("maps")},
+        {label:"🔫  WEAPONS",   color:"#f97316", action:()=>setPhase("weapons")},
+        {label:"👕  SKINS",     color:"#a78bfa", action:()=>setPhase("skins")},
+        {label:"⚙️  SETTINGS",  color:"#60a5fa", action:()=>setPhase("settings")},
+        {label:"✕   QUIT",      color:"#f87171", action:()=>setQuitConfirm(true)},
+      ].map(btn=>(
+        <button key={btn.label} onTouchStart={e=>{e.preventDefault();btn.action();}} onClick={btn.action}
+          style={{background:`${btn.color}15`,border:`1.5px solid ${btn.color}50`,borderRadius:14,padding:"15px 0",fontSize:16,fontWeight:800,color:btn.color,cursor:"pointer",WebkitTapHighlightColor:"transparent",width:"82%",marginBottom:11,letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+          {btn.label}
+        </button>
+      ))}
+      {quitConfirm&&(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:999}}><div style={{background:"#1e293b",borderRadius:18,padding:"32px 28px",width:"80%",textAlign:"center",border:"1px solid #334155"}}><div style={{color:"#fff",fontSize:18,fontWeight:800,marginBottom:8}}>Quit Game?</div><div style={{color:"#64748b",fontSize:13,marginBottom:24}}>Your progress is saved.</div><button onTouchStart={e=>{e.preventDefault();window.close();}} onClick={()=>window.close()} style={{background:"#ef4444",border:"none",borderRadius:10,padding:"13px 0",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",marginBottom:10,width:"100%"}}>YES, QUIT</button><button onTouchStart={e=>{e.preventDefault();setQuitConfirm(false);}} onClick={()=>setQuitConfirm(false)} style={{background:"transparent",border:"1px solid #334155",borderRadius:10,padding:"13px 0",color:"#94a3b8",fontWeight:700,fontSize:14,cursor:"pointer",width:"100%"}}>CANCEL</button></div></div>)}
+    </div>
+  );
+
+  // MAPS SCREEN
+  if(phase==="maps"){
+    const mapUnlockLvl = {grasslands:0,desert:30,urban:65,forest:100,arctic:140,volcanic:170};
+    return(
+      <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"system-ui,sans-serif",overflowY:"auto",paddingBottom:40,userSelect:"none",WebkitUserSelect:"none"}}>
+        <div style={{position:"sticky",top:0,zIndex:10,background:"#0a0f1e",width:"100%",display:"flex",alignItems:"center",padding:"14px 16px",boxSizing:"border-box",borderBottom:"1px solid #1e293b"}}>
+          <button onTouchStart={e=>{e.preventDefault();setPhase("menu");}} onClick={()=>setPhase("menu")} style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:22,cursor:"pointer",marginRight:12,WebkitTapHighlightColor:"transparent"}}>←</button>
+          <div style={{color:"#4ade80",fontWeight:900,fontSize:18,letterSpacing:2}}>🗺️ SELECT MAP</div>
+          <div style={{marginLeft:"auto",background:"#1e293b",borderRadius:20,padding:"4px 14px",display:"flex",alignItems:"center",gap:6}}><span>🪙</span><span style={{color:"#fbbf24",fontWeight:800,fontSize:14}}>{coins}</span></div>
+        </div>
+        <div style={{padding:"10px 14px",color:"#475569",fontSize:11,textAlign:"center"}}>Each map has 200 levels • Unlock maps by reaching higher levels</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,padding:"8px 12px",width:"100%",boxSizing:"border-box"}}>
+          {MAPS.map(m=>{
+            const locked=maxUnlocked<m.unlockAt;
+            const mapLvl=mapProgress[m.id]||1;
+            const pct=Math.min(100,Math.round((mapLvl-1)/TOTAL_LEVELS*100));
+            const isActive=currentMap===m.id;
+            return(
+              <div key={m.id}
+                onTouchStart={e=>{if(locked)return;e.preventDefault();currentMapRef.current=m.id;setCurrentMap(m.id);setPhase("levels");}}
+                onClick={()=>{if(!locked){currentMapRef.current=m.id;setCurrentMap(m.id);setPhase("levels");}}}
+                style={{background:locked?"#0a0f1e":isActive?`${m.color}22`:"#111827",
+                  border:`2px solid ${locked?"#1f2937":isActive?m.color:m.color+"55"}`,
+                  borderRadius:16,padding:"16px 12px",display:"flex",flexDirection:"column",gap:8,
+                  cursor:locked?"not-allowed":"pointer",WebkitTapHighlightColor:"transparent",
+                  opacity:locked?0.45:1,position:"relative",overflow:"hidden"}}>
+                {/* background tint */}
+                <div style={{position:"absolute",inset:0,background:`${m.color}08`,borderRadius:14}}/>
+                {/* locked overlay */}
+                {locked&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.65)",borderRadius:14,zIndex:2}}>
+                  <span style={{fontSize:26}}>🔒</span>
+                  <div style={{color:"#94a3b8",fontSize:11,fontWeight:700,marginTop:4}}>Reach LVL {m.unlockAt}</div>
+                </div>}
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:30}}>{m.icon}</span>
+                  <div>
+                    <div style={{color:m.color,fontWeight:900,fontSize:14}}>{m.name}</div>
+                    {!locked&&<div style={{color:"#475569",fontSize:9}}>LVL {mapLvl} / {TOTAL_LEVELS}</div>}
+                  </div>
+                  {isActive&&!locked&&<div style={{marginLeft:"auto",background:`${m.color}33`,borderRadius:8,padding:"3px 7px",color:m.color,fontSize:9,fontWeight:800}}>ACTIVE</div>}
+                </div>
+                <div style={{color:"#64748b",fontSize:10,lineHeight:1.4}}>{m.desc}</div>
+                {!locked&&(
+                  <div>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                      <span style={{color:"#64748b",fontSize:9}}>Progress</span>
+                      <span style={{color:m.color,fontSize:9,fontWeight:700}}>{pct}%</span>
+                    </div>
+                    <div style={{height:4,background:"#1e293b",borderRadius:2,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${pct}%`,background:m.color,borderRadius:2}}/>
+                    </div>
+                  </div>
+                )}
+                {!locked&&<div style={{background:`${m.color}20`,border:`1px solid ${m.color}55`,borderRadius:10,padding:"8px",textAlign:"center",color:m.color,fontWeight:800,fontSize:13}}>
+                  PLAY →
+                </div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if(phase==="levels"){
+    const activeMapCfg=MAPS.find(m=>m.id===currentMap)||MAPS[0];
+    const mapMaxUnlocked=mapProgress[currentMap]||1;
+    return(
+    <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"system-ui,sans-serif",overflowY:"auto",paddingBottom:40}}>
+      <div style={{position:"sticky",top:0,zIndex:10,background:"#0a0f1e",width:"100%",display:"flex",alignItems:"center",padding:"14px 16px",boxSizing:"border-box",borderBottom:"1px solid #1e293b"}}>
+        <button onTouchStart={e=>{e.preventDefault();setPhase("maps");}} onClick={()=>setPhase("maps")} style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:22,cursor:"pointer",marginRight:12,WebkitTapHighlightColor:"transparent"}}>←</button>
+        <span style={{fontSize:18,marginRight:6}}>{activeMapCfg.icon}</span>
+        <div style={{color:activeMapCfg.color,fontWeight:900,fontSize:16}}>{activeMapCfg.name}</div>
+        <div style={{marginLeft:"auto",background:"#1e293b",borderRadius:20,padding:"4px 14px",display:"flex",alignItems:"center",gap:6}}><span>🪙</span><span style={{color:"#fbbf24",fontWeight:800,fontSize:14}}>{coins}</span></div>
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"10px 16px",width:"100%",boxSizing:"border-box"}}>
+        {[{l:"EASY",c:"#22c55e"},{l:"MEDIUM",c:"#84cc16"},{l:"HARD",c:"#f59e0b"},{l:"VETERAN",c:"#f97316"},{l:"ELITE",c:"#ef4444"},{l:"LEGEND",c:"#a855f7"},{l:"NIGHTMARE",c:"#dc2626"}].map(d=><div key={d.l} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:d.c}}><div style={{width:8,height:8,borderRadius:"50%",background:d.c}}/>{d.l}</div>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,padding:"0 12px",width:"100%",boxSizing:"border-box"}}>
+        {Array.from({length:TOTAL_LEVELS},(_,i)=>{
+          const lvl=i+1;
+          const unlocked=lvl<=mapMaxUnlocked;
+          const completed=lvl<mapMaxUnlocked;
+          const diff=diffLabel(lvl);
+          return(
+            <button key={lvl}
+              onTouchStart={e=>{if(!unlocked)return;e.preventDefault();startLevel(lvl);}}
+              onClick={()=>{if(unlocked)startLevel(lvl);}}
+              disabled={!unlocked}
+              style={{background:completed?"#14532d22":unlocked?`${diff.color}18`:"#111827",border:`1.5px solid ${completed?"#22c55e55":unlocked?diff.color+"55":"#1f2937"}`,borderRadius:10,padding:"10px 0",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,cursor:unlocked?"pointer":"not-allowed",WebkitTapHighlightColor:"transparent",opacity:unlocked?1:0.4,position:"relative"}}>
+              {completed&&<div style={{position:"absolute",top:3,right:4,fontSize:8,color:"#22c55e"}}>✓</div>}
+              {lvl===200&&unlocked&&<div style={{position:"absolute",top:2,left:3,fontSize:9}}>👑</div>}
+              <span style={{color:unlocked?diff.color:"#4b5563",fontWeight:900,fontSize:14}}>{lvl}</span>
+              {unlocked?<span style={{fontSize:7,color:diff.color,letterSpacing:0.5,fontWeight:700}}>{diff.label}</span>:<span style={{fontSize:12}}>🔒</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );}
+
+  // WEAPONS SHOP
+  if(phase==="weapons")return(
+    <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"system-ui,sans-serif",overflowY:"auto",paddingBottom:40}}>
+      {notification&&<div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",background:"#22c55e",borderRadius:10,padding:"10px 24px",color:"#fff",fontWeight:700,fontSize:14,zIndex:999,whiteSpace:"nowrap"}}>{notification}</div>}
+      <div style={{position:"sticky",top:0,zIndex:10,background:"#0a0f1e",width:"100%",display:"flex",alignItems:"center",padding:"14px 16px",boxSizing:"border-box",borderBottom:"1px solid #1e293b"}}>
+        <button onTouchStart={e=>{e.preventDefault();setPhase("menu");}} onClick={()=>setPhase("menu")} style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:22,cursor:"pointer",marginRight:12,WebkitTapHighlightColor:"transparent"}}>←</button>
+        <div style={{color:"#f97316",fontWeight:900,fontSize:18,letterSpacing:2}}>🔫 WEAPONS</div>
+        <div style={{marginLeft:"auto",background:"#1e293b",borderRadius:20,padding:"4px 14px",display:"flex",alignItems:"center",gap:6}}><span>🪙</span><span style={{color:"#fbbf24",fontWeight:800,fontSize:14}}>{coins}</span></div>
+      </div>
+
+      {/* rarity filter */}
+      <div style={{display:"flex",gap:6,padding:"12px 14px 0",width:"100%",boxSizing:"border-box",overflowX:"auto"}}>
+        {["all","common","rare","epic","legendary"].map(f=>(
+          <button key={f} onTouchStart={e=>{e.preventDefault();setGunFilter(f);}} onClick={()=>setGunFilter(f)}
+            style={{background:gunFilter===f?(f==="all"?"#334155":RARITY_COLOR[f]+"33"):"transparent",border:`1px solid ${f==="all"?"#475569":RARITY_COLOR[f]||"#475569"}`,borderRadius:20,padding:"5px 12px",color:f==="all"?"#94a3b8":RARITY_COLOR[f]||"#94a3b8",fontSize:11,fontWeight:700,cursor:"pointer",WebkitTapHighlightColor:"transparent",whiteSpace:"nowrap",flexShrink:0}}>
+            {f==="all"?"ALL":f.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* gun cards */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"12px",width:"100%",boxSizing:"border-box"}}>
+        {filteredGuns.map(gun=>{
+          const owned=ownedGuns.includes(gun.id);
+          const equipped=equippedGun===gun.id;
+          const canAfford=coins>=gun.price;
+          const rc=RARITY_COLOR[gun.rarity];
+          return(
+            <div key={gun.id} style={{background:equipped?`${rc}18`:"#111827",border:`2px solid ${equipped?rc:rc+"33"}`,borderRadius:16,padding:"14px 12px",display:"flex",flexDirection:"column",gap:6}}>
+              {/* rarity + icon */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:32}}>{gun.icon}</span>
+                <span style={{fontSize:9,color:rc,fontWeight:800,letterSpacing:1}}>{gun.rarity.toUpperCase()}</span>
+              </div>
+              <div style={{color:"#e2e8f0",fontWeight:800,fontSize:13}}>{gun.name}</div>
+              <div style={{color:"#475569",fontSize:10,lineHeight:1.4}}>{gun.desc}</div>
+
+              {/* stat bars */}
+              <div style={{marginTop:2}}>
+                <StatBar label="DAMAGE"   value={gun.damage}                   max={200}  color="#ef4444"/>
+                <StatBar label="FIRE RATE" value={Math.round((10/gun.firerate)*10)} max={50} color="#f59e0b"/>
+                <StatBar label="RANGE"    value={gun.range}                    max={280}  color="#60a5fa"/>
+                <StatBar label="MAGAZINE" value={gun.magazine}                 max={250}  color="#a78bfa"/>
+              </div>
+
+              {/* type badge */}
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {gun.type==="flame"&&<span style={{fontSize:9,background:"#c2410c33",color:"#fb923c",borderRadius:6,padding:"2px 7px",fontWeight:700}}>🔥 FLAME</span>}
+                {gun.type==="missile"&&<span style={{fontSize:9,background:"#ef444433",color:"#f87171",borderRadius:6,padding:"2px 7px",fontWeight:700}}>🚀 EXPLOSIVE</span>}
+                {gun.type==="explosive"&&<span style={{fontSize:9,background:"#dc262633",color:"#fca5a5",borderRadius:6,padding:"2px 7px",fontWeight:700}}>💥 AOE</span>}
+                {gun.type==="shotgun"&&<span style={{fontSize:9,background:"#f9731333",color:"#fb923c",borderRadius:6,padding:"2px 7px",fontWeight:700}}>💥 SPREAD</span>}
+                {gun.bulletCount>1&&gun.type!=="flame"&&gun.type!=="shotgun"&&<span style={{fontSize:9,background:"#fbbf2422",color:"#fbbf24",borderRadius:6,padding:"2px 7px",fontWeight:700}}>×{gun.bulletCount}</span>}
+              </div>
+
+              {/* price / equip */}
+              {owned?(
+                equipped
+                  ?<div style={{background:`${rc}22`,border:`1px solid ${rc}55`,borderRadius:10,padding:"8px 0",textAlign:"center",color:rc,fontSize:12,fontWeight:800}}>✓ EQUIPPED</div>
+                  :<button onTouchStart={e=>{e.preventDefault();setEquippedGun(gun.id);showNotif(`${gun.name} equipped!`);}} onClick={()=>{setEquippedGun(gun.id);showNotif(`${gun.name} equipped!`);}}
+                      style={{background:`${rc}22`,border:`1px solid ${rc}`,borderRadius:10,padding:"8px 0",color:rc,fontSize:12,fontWeight:800,cursor:"pointer",WebkitTapHighlightColor:"transparent",width:"100%"}}>EQUIP</button>
+              ):(
+                <button onTouchStart={e=>{e.preventDefault();if(!canAfford){showNotif("Not enough coins!");return;}setCoins(c=>c-gun.price);setOwnedGuns(p=>[...p,gun.id]);setEquippedGun(gun.id);showNotif(`${gun.name} unlocked!`);}}
+                    onClick={()=>{if(!canAfford){showNotif("Not enough coins!");return;}setCoins(c=>c-gun.price);setOwnedGuns(p=>[...p,gun.id]);setEquippedGun(gun.id);showNotif(`${gun.name} unlocked!`);}}
+                    style={{background:canAfford?"#fbbf2420":"#1e293b",border:`1px solid ${canAfford?"#fbbf24":"#374151"}`,borderRadius:10,padding:"8px 0",color:canAfford?"#fbbf24":"#4b5563",fontSize:12,fontWeight:800,cursor:canAfford?"pointer":"not-allowed",WebkitTapHighlightColor:"transparent",width:"100%"}}>
+                  {gun.price===0?"FREE":`BUY 🪙${gun.price}`}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── SHOP (premium / real money) ──────────────────────────────────────────
+  if(phase==="shop"){
+    const premiumGuns  = GUNS.filter(g=>g.rarity==="premium");
+    const premiumSkins = SKINS.filter(s=>s.rarity==="premium");
+
+    // Draw skin portrait as SVG/emoji representation
+    const SkinPortrait = ({skin, size=80}) => {
+      if(skin.img){
+        return(
+          <img
+            src={skin.img}
+            alt={skin.name}
+            style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",
+              border:`3px solid ${skin.border}`,
+              boxShadow:`0 0 20px ${skin.glow||skin.border}99,0 0 6px ${skin.glow||skin.border}55`
+            }}
+          />
+        );
+      }
+      // fallback for non-image skins
+      return(
+        <div style={{width:size,height:size,borderRadius:"50%",background:skin.body,border:`3px solid ${skin.border}`,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          boxShadow:`0 0 14px ${skin.border}55`}}>
+          <div style={{width:size*0.6,height:size*0.6,borderRadius:"50%",background:skin.helmet}}/>
+        </div>
+      );
+    };
+
+
+    const confirmPurchase=(type,item)=>{
+      // Simulate purchase — in production connect Stripe / Google Play Billing
+      if(type==="gun"){
+        setOwnedGuns(p=>[...p,item.id]);
+        setEquippedGun(item.id);
+      } else {
+        setOwnedSkins(p=>[...p,item.id]);
+        setEquippedSkin(item.id);
+      }
+      setPurchaseItem(null);
+      showNotif(`${item.name} unlocked!`);
+    };
+
+    return(
+      <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"system-ui,sans-serif",overflowY:"auto",paddingBottom:40}}>
+        {notification&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#22c55e",borderRadius:10,padding:"10px 24px",color:"#fff",fontWeight:700,fontSize:14,zIndex:999,whiteSpace:"nowrap"}}>{notification}</div>}
+
+        {/* Header */}
+        <div style={{position:"sticky",top:0,zIndex:10,background:"#0a0f1e",width:"100%",display:"flex",alignItems:"center",padding:"14px 16px",boxSizing:"border-box",borderBottom:"1px solid #1e293b"}}>
+          <button onTouchStart={e=>{e.preventDefault();setPhase("menu");}} onClick={()=>setPhase("menu")} style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:22,cursor:"pointer",marginRight:12,WebkitTapHighlightColor:"transparent"}}>←</button>
+          <div style={{color:"#f0abfc",fontWeight:900,fontSize:18,letterSpacing:2}}>💎 SHOP</div>
+          <div style={{marginLeft:"auto",background:"#1e293b",borderRadius:20,padding:"4px 14px",display:"flex",alignItems:"center",gap:6}}><span>🪙</span><span style={{color:"#fbbf24",fontWeight:800,fontSize:14}}>{coins}</span></div>
+        </div>
+
+        {/* Banner */}
+        <div style={{width:"92%",margin:"14px 0 0",background:"linear-gradient(135deg,#4c1d95,#1e1b4b)",borderRadius:16,padding:"16px",border:"1px solid #7c3aed44",boxSizing:"border-box"}}>
+          <div style={{color:"#f0abfc",fontWeight:900,fontSize:16,marginBottom:4}}>💎 Premium Arsenal</div>
+          <div style={{color:"#94a3b8",fontSize:12}}>Exclusive weapons & skins with special abilities</div>
+          <div style={{color:"#64748b",fontSize:10,marginTop:6}}>⚠ Payment simulation — connect Stripe/Play Billing for live purchases</div>
+        </div>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:8,padding:"12px 16px 0",width:"100%",boxSizing:"border-box"}}>
+          {[{id:"guns",label:"🔫 WEAPONS"},{id:"skins",label:"👕 SKINS"}].map(t=>(
+            <button key={t.id} onTouchStart={e=>{e.preventDefault();setShopTab(t.id);}} onClick={()=>setShopTab(t.id)}
+              style={{flex:1,background:shopTab===t.id?"#4c1d9588":"#111827",border:`1.5px solid ${shopTab===t.id?"#a855f7":"#1f2937"}`,borderRadius:12,padding:"10px 0",color:shopTab===t.id?"#f0abfc":"#475569",fontWeight:800,fontSize:13,cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Gun cards */}
+        {shopTab==="guns"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"12px",width:"100%",boxSizing:"border-box"}}>
+            {premiumGuns.map(gun=>{
+              const owned=ownedGuns.includes(gun.id);
+              const equipped=equippedGun===gun.id;
+              return(
+                <div key={gun.id} style={{background:equipped?"#4c1d9522":"#111827",border:`2px solid ${equipped?"#a855f7":"#4c1d9544"}`,borderRadius:16,padding:"14px 12px",display:"flex",flexDirection:"column",gap:6,position:"relative"}}>
+                  <div style={{position:"absolute",top:8,right:8,background:"#4c1d95",borderRadius:20,padding:"2px 8px",color:"#f0abfc",fontSize:9,fontWeight:800}}>PREMIUM</div>
+                  <div style={{fontSize:36,marginTop:4}}>{gun.icon}</div>
+                  <div style={{color:"#f0abfc",fontWeight:900,fontSize:14}}>{gun.name}</div>
+                  <div style={{color:"#475569",fontSize:10,lineHeight:1.4}}>{gun.desc}</div>
+                  {/* stat bars */}
+                  {[["DMG",gun.damage,350,"#ef4444"],["SPEED",Math.round(10/gun.firerate*10),50,"#f59e0b"],["RANGE",gun.range,300,"#60a5fa"]].map(([l,v,mx,c])=>(
+                    <div key={l}><div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}><span style={{color:"#475569",fontSize:9}}>{l}</span><span style={{color:c,fontSize:9,fontWeight:700}}>{v}</span></div><div style={{height:4,background:"#1e293b",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(100,(v/mx)*100)}%`,background:c,borderRadius:2}}/></div></div>
+                  ))}
+                  <div style={{color:"#f0abfc",fontWeight:900,fontSize:16,marginTop:4}}>{gun.realPrice}</div>
+                  {owned?(
+                    equipped
+                      ?<div style={{background:"#4c1d9533",border:"1px solid #a855f7",borderRadius:10,padding:"8px",textAlign:"center",color:"#f0abfc",fontSize:12,fontWeight:800}}>✓ EQUIPPED</div>
+                      :<button onTouchStart={e=>{e.preventDefault();setEquippedGun(gun.id);showNotif(`${gun.name} equipped!`);}} onClick={()=>{setEquippedGun(gun.id);showNotif(`${gun.name} equipped!`);}} style={{background:"#4c1d9533",border:"1px solid #a855f7",borderRadius:10,padding:"8px",color:"#f0abfc",fontSize:12,fontWeight:800,cursor:"pointer",WebkitTapHighlightColor:"transparent",width:"100%"}}>EQUIP</button>
+                  ):(
+                    <button onTouchStart={e=>{e.preventDefault();setPurchaseItem({type:"gun",item:gun});}} onClick={()=>setPurchaseItem({type:"gun",item:gun})}
+                      style={{background:"linear-gradient(135deg,#7c3aed,#4c1d95)",border:"none",borderRadius:10,padding:"10px",color:"#fff",fontSize:13,fontWeight:900,cursor:"pointer",WebkitTapHighlightColor:"transparent",width:"100%",boxShadow:"0 4px 14px #7c3aed44"}}>
+                      BUY {gun.realPrice}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Skin cards */}
+        {shopTab==="skins"&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"12px",width:"100%",boxSizing:"border-box"}}>
+            {premiumSkins.map(sk=>{
+              const owned=ownedSkins.includes(sk.id);
+              const equipped=equippedSkin===sk.id;
+              return(
+                <div key={sk.id} style={{background:equipped?"#4c1d9522":"#111827",border:`2px solid ${equipped?"#a855f7":"#4c1d9544"}`,borderRadius:16,padding:"14px 10px",display:"flex",flexDirection:"column",alignItems:"center",gap:7,position:"relative"}}>
+                  <div style={{position:"absolute",top:8,right:8,background:"#4c1d95",borderRadius:20,padding:"2px 8px",color:"#f0abfc",fontSize:9,fontWeight:800}}>PREMIUM</div>
+                  <div style={{marginTop:8}}>
+                    <SkinPortrait skin={sk}/>
+                  </div>
+                  <div style={{color:"#f0abfc",fontWeight:900,fontSize:13,textAlign:"center"}}>{sk.name}</div>
+                  <div style={{color:"#f0abfc",fontWeight:900,fontSize:16}}>{sk.realPrice}</div>
+                  {owned?(
+                    !equipped&&<button onTouchStart={e=>{e.preventDefault();setEquippedSkin(sk.id);showNotif(`${sk.name} equipped!`);}} onClick={()=>{setEquippedSkin(sk.id);showNotif(`${sk.name} equipped!`);}} style={{background:`#a855f744`,border:`1px solid #a855f7`,borderRadius:10,padding:"8px",color:"#f0abfc",fontSize:12,fontWeight:800,cursor:"pointer",WebkitTapHighlightColor:"transparent",width:"100%"}}>EQUIP</button>
+                  ):(
+                    <button onTouchStart={e=>{e.preventDefault();setPurchaseItem({type:"skin",item:sk});}} onClick={()=>setPurchaseItem({type:"skin",item:sk})}
+                      style={{background:"linear-gradient(135deg,#7c3aed,#4c1d95)",border:"none",borderRadius:10,padding:"10px",color:"#fff",fontSize:13,fontWeight:900,cursor:"pointer",WebkitTapHighlightColor:"transparent",width:"100%",boxShadow:"0 4px 14px #7c3aed44"}}>
+                      BUY {sk.realPrice}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Purchase Confirm Modal */}
+        {purchaseItem&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:999,padding:24}}>
+            <div style={{background:"#1e293b",borderRadius:20,padding:"28px 24px",width:"88%",maxWidth:360,border:"1px solid #7c3aed",boxSizing:"border-box"}}>
+              <div style={{textAlign:"center",marginBottom:16}}>
+                {purchaseItem.type==="skin" ? (
+                  <div style={{marginBottom:8}}><SkinPortrait skin={purchaseItem.item}/></div>
+                ) : (
+                  <div style={{fontSize:44}}>{purchaseItem.item.icon}</div>
+                )}
+                <div style={{color:"#f0abfc",fontWeight:900,fontSize:18,marginTop:8}}>{purchaseItem.item.name}</div>
+                <div style={{color:"#64748b",fontSize:12,marginTop:4}}>{purchaseItem.item.desc||"Exclusive premium item"}</div>
+              </div>
+              <div style={{background:"#0f172a",borderRadius:12,padding:"14px",marginBottom:20,border:"1px solid #334155"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{color:"#94a3b8",fontSize:13}}>Price</span>
+                  <span style={{color:"#f0abfc",fontWeight:900,fontSize:20}}>{purchaseItem.item.realPrice}</span>
+                </div>
+                <div style={{color:"#475569",fontSize:10,marginTop:6}}>🔒 Secure payment via Google Play / Stripe</div>
+              </div>
+              <button onTouchStart={e=>{e.preventDefault();confirmPurchase(purchaseItem.type,purchaseItem.item);}} onClick={()=>confirmPurchase(purchaseItem.type,purchaseItem.item)}
+                style={{background:"linear-gradient(135deg,#7c3aed,#4c1d95)",border:"none",borderRadius:12,padding:"14px",color:"#fff",fontWeight:900,fontSize:16,cursor:"pointer",width:"100%",marginBottom:10,boxShadow:"0 4px 20px #7c3aed55",WebkitTapHighlightColor:"transparent"}}>
+                CONFIRM PURCHASE
+              </button>
+              <button onTouchStart={e=>{e.preventDefault();setPurchaseItem(null);}} onClick={()=>setPurchaseItem(null)}
+                style={{background:"transparent",border:"1px solid #334155",borderRadius:12,padding:"12px",color:"#64748b",fontWeight:700,fontSize:14,cursor:"pointer",width:"100%",WebkitTapHighlightColor:"transparent"}}>
+                CANCEL
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── SKINS ─────────────────────────────────────────────────────────────────
+  if(phase==="skins")return(
+    <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"system-ui,sans-serif",overflowY:"auto",paddingBottom:40}}>
+      {notification&&<div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",background:"#22c55e",borderRadius:10,padding:"10px 24px",color:"#fff",fontWeight:700,fontSize:14,zIndex:999,whiteSpace:"nowrap"}}>{notification}</div>}
+      <div style={{position:"sticky",top:0,zIndex:10,background:"#0a0f1e",width:"100%",display:"flex",alignItems:"center",padding:"14px 16px",boxSizing:"border-box",borderBottom:"1px solid #1e293b"}}>
+        <button onTouchStart={e=>{e.preventDefault();setPhase("menu");}} onClick={()=>setPhase("menu")} style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:22,cursor:"pointer",marginRight:12,WebkitTapHighlightColor:"transparent"}}>←</button>
+        <div style={{color:"#a78bfa",fontWeight:900,fontSize:18,letterSpacing:2}}>👕 SKINS</div>
+        <div style={{marginLeft:"auto",background:"#1e293b",borderRadius:20,padding:"4px 14px",display:"flex",alignItems:"center",gap:6}}><span>🪙</span><span style={{color:"#fbbf24",fontWeight:800,fontSize:14}}>{coins}</span></div>
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,padding:"10px 16px 0",width:"100%",boxSizing:"border-box"}}>
+        {Object.entries(RARITY_COLOR).map(([r,c])=><div key={r} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:c}}><div style={{width:8,height:8,borderRadius:"50%",background:c}}/>{r.toUpperCase()}</div>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,padding:"10px 12px",width:"100%",boxSizing:"border-box"}}>
+        {SKINS.map(sk=>{const owned=ownedSkins.includes(sk.id);const equipped=equippedSkin===sk.id;const canAfford=coins>=sk.price;const rc=RARITY_COLOR[sk.rarity];return(
+          <div key={sk.id} style={{background:equipped?`${sk.border}18`:"#111827",border:`2px solid ${equipped?sk.border:rc+"44"}`,borderRadius:14,padding:"14px 10px",display:"flex",flexDirection:"column",alignItems:"center",gap:7}}>
+            <div style={{fontSize:9,color:rc,fontWeight:800,letterSpacing:1,alignSelf:"flex-end",marginBottom:-4}}>{sk.rarity.toUpperCase()}</div>
+            <div style={{width:52,height:52,borderRadius:"50%",background:sk.body,border:`3px solid ${sk.border}`,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",boxShadow:`0 0 14px ${sk.border}55`}}>
+              <div style={{width:32,height:32,borderRadius:"50%",background:sk.helmet}}/>
+              {equipped&&<div style={{position:"absolute",top:-4,right:-4,background:"#22c55e",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:900}}>✓</div>}
+            </div>
+            <div style={{color:"#e2e8f0",fontWeight:800,fontSize:12,textAlign:"center"}}>{sk.name}</div>
+            <div style={{color:owned?"#22c55e":canAfford?"#fbbf24":"#ef4444",fontSize:10,fontWeight:700}}>{owned?(equipped?"EQUIPPED":"OWNED"):`🪙${sk.price}`}</div>
+            {owned?(!equipped&&<button onTouchStart={e=>{e.preventDefault();setEquippedSkin(sk.id);showNotif(`${sk.name} equipped!`);}} onClick={()=>{setEquippedSkin(sk.id);showNotif(`${sk.name} equipped!`);}} style={{background:`${sk.border}28`,border:`1px solid ${sk.border}`,borderRadius:8,padding:"6px 0",color:sk.border,fontSize:11,fontWeight:700,cursor:"pointer",WebkitTapHighlightColor:"transparent",width:"100%"}}>EQUIP</button>):(<button onTouchStart={e=>{e.preventDefault();if(!canAfford){showNotif("Not enough coins!");return;}setCoins(c=>c-sk.price);setOwnedSkins(p=>[...p,sk.id]);setEquippedSkin(sk.id);showNotif(`${sk.name} unlocked!`);}} onClick={()=>{if(!canAfford){showNotif("Not enough coins!");return;}setCoins(c=>c-sk.price);setOwnedSkins(p=>[...p,sk.id]);setEquippedSkin(sk.id);showNotif(`${sk.name} unlocked!`);}} style={{background:canAfford?"#fbbf2420":"#1e293b",border:`1px solid ${canAfford?"#fbbf24":"#374151"}`,borderRadius:8,padding:"6px 0",color:canAfford?"#fbbf24":"#4b5563",fontSize:11,fontWeight:700,cursor:"pointer",WebkitTapHighlightColor:"transparent",width:"100%"}}>BUY</button>)}
+          </div>
+        );})}
+      </div>
+    </div>
+  );
+
+  // SETTINGS
+  if(phase==="settings")return(
+    <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"system-ui,sans-serif",overflowY:"auto",paddingBottom:40}}>
+      <div style={{position:"sticky",top:0,zIndex:10,background:"#0a0f1e",width:"100%",display:"flex",alignItems:"center",padding:"14px 16px",boxSizing:"border-box",borderBottom:"1px solid #1e293b"}}>
+        <button onTouchStart={e=>{e.preventDefault();setPhase("menu");}} onClick={()=>setPhase("menu")} style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:22,cursor:"pointer",marginRight:12,WebkitTapHighlightColor:"transparent"}}>←</button>
+        <div style={{color:"#60a5fa",fontWeight:900,fontSize:18,letterSpacing:2}}>⚙️ SETTINGS</div>
+      </div>
+      <div style={{background:"#111827",borderRadius:16,width:"92%",padding:"18px 16px",marginTop:16,border:"1px solid #1f2937",boxSizing:"border-box"}}>
+        <div style={{color:"#fbbf24",fontWeight:800,fontSize:12,letterSpacing:2,marginBottom:14}}>AUDIO</div>
+        <div style={{color:"#94a3b8",fontSize:13,marginBottom:6}}>Sensitivity: <span style={{color:"#fbbf24",fontWeight:700}}>{settings.sensitivity}</span></div>
+        <input type="range" min={1} max={10} value={settings.sensitivity} onChange={e=>setSettings(s=>({...s,sensitivity:+e.target.value}))} style={{width:"100%",accentColor:"#fbbf24",marginBottom:18}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+          <span style={{color:"#94a3b8",fontSize:13}}>Vibration</span>
+          <div onTouchStart={e=>{e.preventDefault();setSettings(s=>({...s,vibration:!s.vibration}));}} onClick={()=>setSettings(s=>({...s,vibration:!s.vibration}))} style={{width:48,height:26,borderRadius:13,background:settings.vibration?"#22c55e":"#374151",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
+            <div style={{position:"absolute",top:3,left:settings.vibration?24:3,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}}/>
+          </div>
+        </div>
+        <div style={{color:"#94a3b8",fontSize:13,marginBottom:6}}>Music: <span style={{color:"#60a5fa",fontWeight:700}}>{settings.musicVol}</span></div>
+        <input type="range" min={0} max={10} value={settings.musicVol} onChange={e=>setSettings(s=>({...s,musicVol:+e.target.value}))} style={{width:"100%",accentColor:"#60a5fa"}}/>
+      </div>
+      {/* CONTROLS SECTION */}
+      <div style={{background:"#111827",borderRadius:16,width:"92%",padding:"18px 16px",marginTop:12,border:"1px solid #1f2937",boxSizing:"border-box"}}>
+        <div style={{color:"#f97316",fontWeight:800,fontSize:12,letterSpacing:2,marginBottom:14}}>🎮 CONTROLS</div>
+        {[
+          {key:"joySize",  label:"Joystick Size",   min:35, max:75, color:"#4ade80"},
+          {key:"fireSize", label:"Fire Button Size", min:55, max:95, color:"#ef4444"},
+          {key:"reloadSize",label:"Reload Button",   min:40, max:70, color:"#60a5fa"},
+          {key:"firePosY", label:"Fire Button Height",min:50, max:180,color:"#f59e0b"},
+          {key:"joyBottom",label:"Joystick Height",  min:80, max:200,color:"#a78bfa"},
+        ].map(({key,label,min,max,color})=>(
+          <div key={key} style={{marginBottom:14}}>
+            <div style={{color:"#94a3b8",fontSize:13,marginBottom:5}}>{label}: <span style={{color,fontWeight:700}}>{settings[key]||Math.round((min+max)/2)}</span></div>
+            <input type="range" min={min} max={max} value={settings[key]||Math.round((min+max)/2)}
+              onChange={e=>setSettings(s=>({...s,[key]:+e.target.value}))}
+              style={{width:"100%",accentColor:color}}/>
+          </div>
+        ))}
+        <button onTouchStart={e=>{e.preventDefault();setSettings(s=>({...s,joySize:55,fireSize:72,reloadSize:52,firePosY:70,joyBottom:130}));}} onClick={()=>setSettings(s=>({...s,joySize:55,fireSize:72,reloadSize:52,firePosY:70,joyBottom:130}))}
+          style={{background:"#1e293b",border:"1px solid #334155",borderRadius:10,padding:"10px",color:"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer",width:"100%",WebkitTapHighlightColor:"transparent"}}>
+          Reset to Default
+        </button>
+      </div>
+    </div>
+  );
+
+  // DEAD
+  if(phase==="dead"){const kills=gsRef.current?.player?.kills??0;const earned=kills*3;return(
+    <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"system-ui,sans-serif",padding:24}}>
+      <div style={{fontSize:48,fontWeight:900,color:"#ef4444",textShadow:"0 0 30px #ef444488",marginBottom:6}}>💀 ELIMINATED</div>
+      <div style={{color:"#475569",fontSize:11,letterSpacing:3,marginBottom:22}}>DOT WAR BATTLEZONE — Level {currentLvl}</div>
+      <div style={{background:"#111827",borderRadius:18,padding:"22px 44px",marginBottom:16,border:"1px solid #1f2937",textAlign:"center"}}>
+        <div style={{color:"#64748b",fontSize:10,letterSpacing:2,marginBottom:6}}>MATCH RESULT</div>
+        <div style={{fontSize:42,fontWeight:900,color:"#fbbf24"}}>{kills}</div>
+        <div style={{color:"#94a3b8",fontSize:12,marginBottom:8}}>KILLS</div>
+        <div style={{color:"#22c55e",fontSize:13,fontWeight:700}}>+{earned} 🪙 earned</div>
+      </div>
+      <button onTouchStart={e=>{e.preventDefault();startLevel(currentLvl);}} onClick={()=>startLevel(currentLvl)} style={{background:"linear-gradient(135deg,#f59e0b,#d97706)",border:"none",borderRadius:12,padding:"14px 0",fontSize:15,fontWeight:900,color:"#1a1a1a",cursor:"pointer",letterSpacing:2,marginBottom:10,width:"80%",WebkitTapHighlightColor:"transparent"}}>RETRY LEVEL {currentLvl}</button>
+      <button onTouchStart={e=>{e.preventDefault();setPhase("levels");}} onClick={()=>setPhase("levels")} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:12,padding:"12px 0",fontSize:13,fontWeight:700,color:"#94a3b8",cursor:"pointer",width:"80%",WebkitTapHighlightColor:"transparent",marginBottom:10}}>LEVEL SELECT</button>
+      <button onTouchStart={e=>{e.preventDefault();setPhase("maps");}} onClick={()=>setPhase("maps")} style={{background:"transparent",border:"none",color:"#475569",fontSize:13,cursor:"pointer",marginBottom:6}}>MAP SELECT</button>
+      <button onTouchStart={e=>{e.preventDefault();setPhase("menu");}} onClick={()=>setPhase("menu")} style={{background:"transparent",border:"none",color:"#334155",fontSize:12,cursor:"pointer"}}>MAIN MENU</button>
+    </div>
+  );}
+
+  // WIN
+  if(phase==="win"){const kills=gsRef.current?.player?.kills??0;const cfgW=getLevelConfig(currentLvl);const earned=cfgW.coinReward+kills*5;const nextLvl=currentLvl+1;const isLast=currentLvl===TOTAL_LEVELS;return(
+    <div style={{position:"fixed",inset:0,background:"#0a0f1e",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"system-ui,sans-serif",padding:24}}>
+      <div style={{fontSize:isLast?40:48,fontWeight:900,color:"#fbbf24",textShadow:"0 0 30px #f59e0b88",marginBottom:6}}>{isLast?"👑 CHAMPION!":"🏆 VICTORY!"}</div>
+      <div style={{color:"#64748b",fontSize:13,marginBottom:8}}>Level {currentLvl} Completed!</div>
+      {!isLast&&<div style={{color:diffLabel(nextLvl).color,fontSize:12,fontWeight:700,marginBottom:20}}>Next: Level {nextLvl} — {diffLabel(nextLvl).label}</div>}
+      <div style={{background:"#111827",borderRadius:18,padding:"22px 44px",marginBottom:16,border:"1px solid #1f2937",textAlign:"center"}}>
+        <div style={{display:"flex",gap:28,justifyContent:"center"}}>
+          <div><div style={{fontSize:36,fontWeight:900,color:"#fbbf24"}}>{kills}</div><div style={{color:"#94a3b8",fontSize:11}}>KILLS</div></div>
+          <div style={{width:1,background:"#1f2937"}}/>
+          <div><div style={{fontSize:36,fontWeight:900,color:"#22c55e"}}>+{earned}</div><div style={{color:"#94a3b8",fontSize:11}}>🪙 EARNED</div></div>
+        </div>
+      </div>
+      {!isLast&&<button onTouchStart={e=>{e.preventDefault();startLevel(nextLvl);}} onClick={()=>startLevel(nextLvl)} style={{background:"linear-gradient(135deg,#f59e0b,#d97706)",border:"none",borderRadius:12,padding:"14px 0",fontSize:15,fontWeight:900,color:"#1a1a1a",cursor:"pointer",letterSpacing:2,marginBottom:10,width:"80%",WebkitTapHighlightColor:"transparent"}}>NEXT LEVEL →</button>}
+      <button onTouchStart={e=>{e.preventDefault();setPhase("levels");}} onClick={()=>setPhase("levels")} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:12,padding:"12px 0",fontSize:13,fontWeight:700,color:"#94a3b8",cursor:"pointer",width:"80%",WebkitTapHighlightColor:"transparent",marginBottom:10}}>LEVEL SELECT</button>
+      <button onTouchStart={e=>{e.preventDefault();setPhase("menu");}} onClick={()=>setPhase("menu")} style={{background:"transparent",border:"none",color:"#475569",fontSize:13,cursor:"pointer"}}>MAIN MENU</button>
+    </div>
+  );}
+
+  // PLAYING HUD
+  return(
+    <div style={{position:"fixed",inset:0,background:"#000",overflow:"hidden",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}}>
+      <canvas ref={canvasRef} style={{display:"block",width:"100%",height:"100%",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}}/>
+      <div style={{position:"absolute",top:12,left:12,display:"flex",flexDirection:"column",gap:5,pointerEvents:"none"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{color:"#ef4444",fontSize:12}}>❤</span><div style={{width:120,height:10,background:"#1e293b",borderRadius:6,overflow:"hidden",border:"1px solid #374151"}}><div style={{width:`${hud.hp}%`,height:"100%",background:barC(hud.hp),borderRadius:6,transition:"width 0.15s"}}/></div><span style={{color:"#e2e8f0",fontSize:11,fontWeight:700,minWidth:26,fontFamily:"monospace"}}>{hud.hp}</span></div>
+        {hud.armor>0&&<div style={{display:"flex",alignItems:"center",gap:6}}><span style={{color:"#60a5fa",fontSize:11}}>◆</span><div style={{width:120,height:8,background:"#1e293b",borderRadius:6,overflow:"hidden",border:"1px solid #374151"}}><div style={{width:`${hud.armor}%`,height:"100%",background:"#60a5fa",borderRadius:6}}/></div><span style={{color:"#e2e8f0",fontSize:11,fontWeight:700,minWidth:26,fontFamily:"monospace"}}>{hud.armor}</span></div>}
+      </div>
+      <div style={{position:"absolute",top:44,left:"50%",transform:"translateX(-50%)",background:"rgba(0,0,0,0.55)",borderRadius:8,padding:"4px 12px",display:"flex",gap:10,pointerEvents:"none"}}>
+        <span style={{color:"#fbbf24",fontSize:11,fontWeight:700}}>☠ {hud.kills}</span>
+        <span style={{color:"#334155"}}>|</span>
+        <span style={{color:"#94a3b8",fontSize:11}}>👥 {hud.alive}</span>
+      </div>
+      {/* weapon + ammo HUD */}
+      <div style={{position:"absolute",bottom:24,right:108,textAlign:"right",pointerEvents:"none"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:5,marginBottom:2}}>
+          <span style={{fontSize:14}}>{hud.gunIcon}</span>
+          <span style={{color:RARITY_COLOR[activeGun.rarity]||"#fff",fontSize:10,fontWeight:700}}>{hud.gunName}</span>
+        </div>
+        <div style={{fontSize:hud.reloading?12:18,fontWeight:900,color:hud.reloading?"#f59e0b":"#fff",fontFamily:"monospace"}}>{hud.reloading?"RELOADING...":`${hud.ammo}/${hud.maxAmmo}`}</div>
+      </div>
+      {hud.zoneClose&&<div style={{position:"absolute",top:76,left:"50%",transform:"translateX(-50%)",background:"rgba(239,68,68,0.9)",borderRadius:8,padding:"5px 14px",color:"#fff",fontSize:11,fontWeight:700,pointerEvents:"none",whiteSpace:"nowrap"}}>⚠ ZONE -{hud.zoneDmg}/tick — GET IN!</div>}
+      <div onTouchStart={e=>{e.preventDefault();const gs=gsRef.current;if(gs&&gs.player.ammo<gs.gun.magazine&&gs.player.reloadTimer===0)gs.player.reloadTimer=gs.gun.reload;}} style={{position:"absolute",bottom:(settings.firePosY||70)+(settings.reloadSize||52)+16,right:20,width:settings.reloadSize||52,height:settings.reloadSize||52,borderRadius:"50%",background:"rgba(30,41,59,0.88)",border:`2px solid ${activeSkin.border}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",WebkitTapHighlightColor:"transparent"}}>
+        <span style={{color:activeSkin.border,fontSize:16}}>↺</span><span style={{color:"#64748b",fontSize:7}}>RELOAD</span>
+      </div>
+      {/* FIRE BUTTON — drag to aim + fire */}
+      <div
+        onTouchStart={e=>{
+          e.preventDefault();e.stopPropagation();
+          const t=e.changedTouches[0];
+          const r=e.currentTarget.getBoundingClientRect();
+          fireAimRef.current={active:true,startX:r.left+r.width/2,startY:r.top+r.height/2,currX:t.clientX,currY:t.clientY,id:t.identifier};
+        }}
+        onTouchMove={e=>{
+          e.preventDefault();e.stopPropagation();
+          for(const t of e.changedTouches){
+            if(t.identifier===fireAimRef.current.id){
+              fireAimRef.current.currX=t.clientX;
+              fireAimRef.current.currY=t.clientY;
+            }
+          }
+        }}
+        onTouchEnd={e=>{e.preventDefault();e.stopPropagation();fireAimRef.current.active=false;}}
+        onTouchCancel={e=>{e.preventDefault();fireAimRef.current.active=false;}}
+        style={{position:"absolute",bottom:settings.firePosY||70,right:14,width:settings.fireSize||72,height:settings.fireSize||72,borderRadius:"50%",
+          background:activeGun.type==="melee"?"rgba(251,191,36,0.88)":"rgba(220,38,38,0.88)",
+          border:`3px solid ${activeGun.type==="melee"?"#fbbf24":"#ef4444"}`,
+          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+          cursor:"pointer",WebkitTapHighlightColor:"transparent",
+          boxShadow:`0 4px 20px ${activeGun.type==="melee"?"#fbbf2466":"#ef444466"}`}}>
+        <span style={{fontSize:activeGun.type==="melee"?26:22}}>{activeGun.type==="melee"?activeGun.icon:"🔴"}</span>
+        <span style={{color:"#fff",fontSize:8,fontWeight:800,letterSpacing:1}}>{activeGun.type==="melee"?"SWING":"FIRE"}</span>
+      </div>
+      {/* PAUSE BUTTON */}
+      <div onTouchStart={e=>{e.preventDefault();isPausedRef.current=true;setPaused(true);}} onClick={()=>{isPausedRef.current=true;setPaused(true);}}
+        style={{position:"absolute",top:10,right:118,background:"rgba(0,0,0,0.6)",border:"1px solid #334155",borderRadius:8,padding:"6px 12px",color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",WebkitTapHighlightColor:"transparent",display:"flex",alignItems:"center",gap:5}}>
+        ⏸
+      </div>
+      {/* PAUSE OVERLAY */}
+      {paused&&(
+        <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.78)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:50}}>
+          <div style={{fontSize:11,color:"#475569",letterSpacing:3,marginBottom:8}}>DOT WAR BATTLEZONE</div>
+          <div style={{fontSize:36,fontWeight:900,color:"#fbbf24",textShadow:"0 0 20px #f59e0b88",marginBottom:6}}>⏸ PAUSED</div>
+          <div style={{color:"#64748b",fontSize:13,marginBottom:32}}>Level {currentLvl}</div>
+          <button
+            onTouchStart={e=>{e.preventDefault();isPausedRef.current=false;setPaused(false);}}
+            onClick={()=>{isPausedRef.current=false;setPaused(false);}}
+            style={{background:"linear-gradient(135deg,#22c55e,#16a34a)",border:"none",borderRadius:14,padding:"16px 0",fontSize:17,fontWeight:900,color:"#fff",cursor:"pointer",width:"72%",marginBottom:14,letterSpacing:1,WebkitTapHighlightColor:"transparent",boxShadow:"0 4px 20px #22c55e44"}}>
+            ▶  RESUME
+          </button>
+          <button
+            onTouchStart={e=>{e.preventDefault();isPausedRef.current=false;setPaused(false);if(animRef.current)cancelAnimationFrame(animRef.current);setPhase("menu");}}
+            onClick={()=>{isPausedRef.current=false;setPaused(false);if(animRef.current)cancelAnimationFrame(animRef.current);setPhase("menu");}}
+            style={{background:"rgba(30,41,59,0.9)",border:"1px solid #334155",borderRadius:14,padding:"14px 0",fontSize:15,fontWeight:700,color:"#94a3b8",cursor:"pointer",width:"72%",WebkitTapHighlightColor:"transparent"}}>
+            🏠  MAIN MENU
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+    document.getElementById('loader').style.display='none';
+    document.getElementById('root').style.display='block';
+    clearInterval(iv);
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>
