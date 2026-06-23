@@ -3,62 +3,78 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no,maximum-scale=1.0">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>DOT WAR BATTLEZONE</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    html,body,#root{width:100%;height:100%;background:#0a0f1e;overflow:hidden}
+    html,body{width:100%;height:100%;background:#0a0f1e;overflow:hidden}
     body{touch-action:none;user-select:none;-webkit-user-select:none}
-    #loader{
-      position:fixed;inset:0;background:#0a0f1e;
-      display:flex;flex-direction:column;align-items:center;justify-content:center;
-      z-index:9999;font-family:system-ui,sans-serif;
-    }
-    #loader h1{color:#4ade80;font-size:28px;font-weight:900;letter-spacing:3px;margin-bottom:6px}
-    #loader h2{color:#ef4444;font-size:18px;font-weight:900;letter-spacing:5px;margin-bottom:30px}
-    .bar-wrap{width:220px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-bottom:14px}
-    .bar{height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#4ade80);border-radius:4px;transition:width 0.3s}
-    #loader p{color:#475569;font-size:13px}
-    #root{display:none}
+    #loader{position:fixed;inset:0;background:#0a0f1e;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;font-family:system-ui,sans-serif}
+    #loader h1{color:#4ade80;font-size:26px;font-weight:900;letter-spacing:3px;margin-bottom:4px}
+    #loader h2{color:#ef4444;font-size:16px;font-weight:900;letter-spacing:5px;margin-bottom:24px}
+    .bar-bg{width:240px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-bottom:12px}
+    .bar{height:100%;width:5%;background:linear-gradient(90deg,#22c55e,#4ade80);border-radius:4px;transition:width 0.5s}
+    #msg{color:#475569;font-size:12px;text-align:center;padding:0 20px}
+    #err{color:#ef4444;font-size:11px;text-align:center;padding:10px 20px;display:none}
+    #root{display:none;width:100%;height:100%}
   </style>
 </head>
 <body>
   <div id="loader">
     <h1>DOT WAR</h1>
     <h2>BATTLEZONE</h2>
-    <div class="bar-wrap"><div class="bar" id="bar"></div></div>
-    <p id="msg">Loading game...</p>
+    <div class="bar-bg"><div class="bar" id="bar"></div></div>
+    <p id="msg">Starting up... (30-60 sec first load)</p>
+    <p id="err"></p>
   </div>
   <div id="root"></div>
-
   <script>
+    
+window.storage={
+  _load:function(){try{return JSON.parse(localStorage.getItem('bz')||'{}')}catch(e){return{}}},
+  _save:function(d){try{localStorage.setItem('bz',JSON.stringify(d))}catch(e){}},
+  get:function(k,s){var d=this._load(),key=(s?'s:':'p:')+k;if(!(key in d))throw new Error('notfound');return{key:k,value:d[key],shared:!!s}},
+  set:function(k,v,s){var d=this._load();d[(s?'s:':'p:')+k]=v;this._save(d);return{key:k,value:v,shared:!!s}},
+  delete:function(k,s){var d=this._load();delete d[(s?'s:':'p:')+k];this._save(d);return{key:k,deleted:true}},
+  list:function(p,s){var d=this._load(),pfx=(s?'s:':'p:')+(p||'');return{keys:Object.keys(d).filter(function(k){return k.startsWith(pfx)}).map(function(k){return k.replace(/^[ps]:/,'')}),prefix:p,shared:!!s}}
+};
     var bar=document.getElementById('bar');
     var msg=document.getElementById('msg');
-    var pct=0;
+    var err=document.getElementById('err');
+    var pct=5;
     var iv=setInterval(function(){
-      pct+=2;if(pct>90)pct=90;
+      pct=Math.min(pct+1,88);
       bar.style.width=pct+'%';
-    },200);
-
-    window.storage={
-      _load:function(){try{return JSON.parse(localStorage.getItem('bz_storage')||'{}')}catch(e){return{}}},
-      _save:function(d){try{localStorage.setItem('bz_storage',JSON.stringify(d))}catch(e){}},
-      get:function(key,shared){var d=this._load(),k=(shared?'s:':'p:')+key;if(!(k in d))throw new Error('Key not found: '+key);return{key:key,value:d[k],shared:!!shared}},
-      set:function(key,value,shared){var d=this._load();d[(shared?'s:':'p:')+key]=value;this._save(d);return{key:key,value:value,shared:!!shared}},
-      delete:function(key,shared){var d=this._load();delete d[(shared?'s:':'p:')+key];this._save(d);return{key:key,deleted:true,shared:!!shared}},
-      list:function(prefix,shared){var d=this._load(),pfx=(shared?'s:':'p:')+(prefix||'');return{keys:Object.keys(d).filter(function(k){return k.startsWith(pfx)}).map(function(k){return k.replace(/^[ps]:/,'')}),prefix:prefix,shared:!!shared}}
+      if(pct<30)msg.textContent='Loading React...';
+      else if(pct<60)msg.textContent='Loading game engine...';
+      else msg.textContent='Compiling... almost ready!';
+    },600);
+    window.onerror=function(m,s,l,c,e){
+      err.style.display='block';
+      err.textContent='Error: '+m;
+      msg.textContent='Something went wrong.';
     };
+    function startGame(){
+      clearInterval(iv);
+      bar.style.width='100%';
+      msg.textContent='Ready!';
+      setTimeout(function(){
+        document.getElementById('loader').style.display='none';
+        document.getElementById('root').style.display='block';
+        try{
+          ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+        }catch(e){
+          document.getElementById('loader').style.display='flex';
+          err.style.display='block';
+          err.textContent='Launch error: '+e.message;
+        }
+      },300);
+    }
   </script>
-
-  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.23.2/babel.min.js"></script>
-
-  <script>
-    msg.textContent='Almost ready...';
-    bar.style.width='95%';
-  </script>
-
-  <script type="text/babel" data-presets="react">
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" onload="msg.textContent='React loaded...'" onerror="err.style.display='block';err.textContent='Failed to load React. Check internet.'"></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" onload="msg.textContent='Compiling game...'"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.2/babel.min.js" onload="msg.textContent='Babel loaded, starting...'"></script>
+  <script type="text/babel" data-presets="react" data-type="module">
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── constants ─────────────────────────────────────────────────────────────
@@ -1852,10 +1868,7 @@ export default function BattleZone(){
   );
 }
 
-    document.getElementById('loader').style.display='none';
-    document.getElementById('root').style.display='block';
-    clearInterval(iv);
-    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+    startGame();
   </script>
 </body>
 </html>
