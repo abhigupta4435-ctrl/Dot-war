@@ -15,7 +15,7 @@
     .bar-bg{width:240px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-bottom:12px}
     .bar{height:100%;width:5%;background:linear-gradient(90deg,#22c55e,#4ade80);border-radius:4px;transition:width 0.3s}
     #msg{color:#475569;font-size:12px}
-    #err{color:#ef4444;font-size:11px;text-align:center;padding:10px 20px;display:none}
+    #err{color:#ef4444;font-size:11px;text-align:center;padding:10px 20px;display:none;max-width:320px}
     #root{display:none;width:100%;height:100%}
   </style>
 </head>
@@ -24,23 +24,24 @@
     <h1>DOT WAR</h1>
     <h2>BATTLEZONE</h2>
     <div class="bar-bg"><div class="bar" id="bar"></div></div>
-    <p id="msg">Loading...</p>
+    <p id="msg">Loading React...</p>
     <p id="err"></p>
   </div>
   <div id="root"></div>
-  <script>
-    window.storage={_load:function(){try{return JSON.parse(localStorage.getItem('bz')||'{}')}catch(e){return{}}},_save:function(d){try{localStorage.setItem('bz',JSON.stringify(d))}catch(e){}},get:function(k,s){var d=this._load(),key=(s?'s:':'p:')+k;if(!(key in d))throw new Error('notfound');return{key:k,value:d[key],shared:!!s}},set:function(k,v,s){var d=this._load();d[(s?'s:':'p:')+k]=v;this._save(d);return{key:k,value:v,shared:!!s}},delete:function(k,s){var d=this._load();delete d[(s?'s:':'p:')+k];this._save(d);return{key:k,deleted:true}},list:function(p,s){var d=this._load(),pfx=(s?'s:':'p:')+(p||'');return{keys:Object.keys(d).filter(function(k){return k.startsWith(pfx)}).map(function(k){return k.replace(/^[ps]:/,'')}),prefix:p,shared:!!s}}};
-    var bar=document.getElementById('bar'),msg=document.getElementById('msg'),err=document.getElementById('err');
-    var pct=5,iv=setInterval(function(){pct=Math.min(pct+3,90);bar.style.width=pct+'%';},200);
-    window.onerror=function(m){err.style.display='block';err.textContent='Error: '+m;clearInterval(iv);};
-  </script>
+  <script>window.storage={_load:function(){try{return JSON.parse(localStorage.getItem('bz')||'{}')}catch(e){return{}}},_save:function(d){try{localStorage.setItem('bz',JSON.stringify(d))}catch(e){}},get:function(k,s){var d=this._load(),key=(s?'s:':'p:')+k;if(!(key in d))throw new Error('notfound');return{key:k,value:d[key],shared:!!s}},set:function(k,v,s){var d=this._load();d[(s?'s:':'p:')+k]=v;this._save(d);return{key:k,value:v,shared:!!s}},delete:function(k,s){var d=this._load();delete d[(s?'s:':'p:')+k];this._save(d);return{key:k,deleted:true}},list:function(p,s){var d=this._load(),pfx=(s?'s:':'p:')+(p||'');return{keys:Object.keys(d).filter(function(k){return k.startsWith(pfx)}).map(function(k){return k.replace(/^[ps]:/,'')}),prefix:p,shared:!!s}}};</script>
   <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
   <script>
-    msg.textContent='Starting game...';
-    bar.style.width='70%';
-    const { useState, useEffect, useRef, useCallback } = React;
-    
+    var bar=document.getElementById('bar'),msg=document.getElementById('msg'),err=document.getElementById('err');
+    bar.style.width='40%'; msg.textContent='Loading game...';
+    window.onerror=function(m,s,l,c,e){
+      err.style.display='block';
+      err.textContent='Error: '+m+' (line '+l+')';
+    };
+    // Expose React hooks globally for the game
+    var useState=React.useState,useEffect=React.useEffect,useRef=React.useRef,useCallback=React.useCallback;
+    try{
+      
 
 
 const { useState, useEffect, useRef, useCallback } = React;
@@ -2385,19 +2386,17 @@ function BattleZone() {
                     cancelAnimationFrame(animRef.current); setPhase("menu"); }, style: { background: "rgba(30,41,59,0.9)", border: "1px solid #334155", borderRadius: 14, padding: "14px 0", fontSize: 15, fontWeight: 700, color: "#94a3b8", cursor: "pointer", width: "72%", WebkitTapHighlightColor: "transparent" } }, "\uD83C\uDFE0  MAIN MENU")))));
 }
 
-    bar.style.width='100%';
-    clearInterval(iv);
-    setTimeout(function(){
-      document.getElementById('loader').style.display='none';
-      document.getElementById('root').style.display='block';
-      try{
-        ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
-      }catch(e){
-        document.getElementById('loader').style.display='flex';
-        err.style.display='block';
-        err.textContent='Launch error: '+e.message;
-      }
-    },200);
+      // BattleZone is the main component (exported as default)
+      bar.style.width='100%'; msg.textContent='Ready!';
+      setTimeout(function(){
+        document.getElementById('loader').style.display='none';
+        document.getElementById('root').style.display='block';
+        ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(BattleZone));
+      },300);
+    }catch(e){
+      err.style.display='block';
+      err.textContent='Game error: '+e.message;
+    }
   </script>
 </body>
 </html>
